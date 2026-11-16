@@ -1,8 +1,9 @@
 """Core: technologies by All, race, family and ship (Ships.py)."""
+import os
 import sys
 import types
 import builtins
-sys.path.insert(0, "/mnt/user-data/outputs/Spaceframe/tests")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mock_app
 
 builtins.reload = lambda m: m

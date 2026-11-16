@@ -3,10 +3,11 @@
 Load game modules with load_module(): it reads the CRLF Python 1.5 source,
 swaps dict.has_key for __contains__ and runs it against these mocks.
 """
+import os
 import sys
 import types
 
-GAME = "/mnt/user-data/outputs/Spaceframe/scripts/Custom/Spaceframe"
+GAME = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "Custom", "Spaceframe")
 
 
 class Recorder:

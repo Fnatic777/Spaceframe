@@ -15,5 +15,8 @@ Desktop.ini
 .vscode/
 .idea/
 
-# Claude Code local state
-.claude/
+# Claude Code local state (agents in .claude/agents are versioned)
+.claude/settings.local.json
+
+# deploy.py local record of installed content
+.deploy-state.json

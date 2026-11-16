@@ -1,0 +1,7 @@
+# Files installed into the game must be CRLF in the working tree whatever the
+# local git settings (core.autocrlf). The repo stores them with LF.
+*/scripts/** text eol=crlf
+*/README.txt text eol=crlf
+
+# Compiled game bytecode is never text.
+*.pyc binary

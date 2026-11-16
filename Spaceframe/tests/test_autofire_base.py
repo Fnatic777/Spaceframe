@@ -1,8 +1,9 @@
 """Task 1 tests: state, toggle key, menu button, manual fire flags, HUD title."""
 import builtins
+import os
 import sys
 import types
-sys.path.insert(0, "/mnt/user-data/outputs/Spaceframe/tests")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mock_app
 
 builtins.reload = lambda m: m

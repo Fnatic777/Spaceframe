@@ -1,7 +1,8 @@
 """Task 4 tests: automatic torpedo spread."""
+import os
 import sys
 import types
-sys.path.insert(0, "/mnt/user-data/outputs/Spaceframe/tests")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mock_app
 import test_autofire_base as base
 
