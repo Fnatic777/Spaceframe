@@ -1,0 +1,26 @@
+###############################################################################
+#	Spaceframe - core configuration
+#
+#	Edit with a text editor (Notepad++ recommended). Close the file in the
+#	editor when you are done, so an old copy is not saved over it later.
+#	Each module has its own Config.py in Modules\<Name>\.
+###############################################################################
+
+# Modules found in Modules\ are enabled automatically.
+# Set a module to 0 here to disable it, e.g. "MVShields": 0
+Modules = {
+	"MVShields": 1,
+	"AblativeArmor": 1,
+	"StatusHUD": 1,
+	"AutoFire": 1,
+}
+
+# Time between cycles of the shared timer, in game seconds.
+# Lower = modules react faster.
+Interval = 0.25
+
+# 1 = also runs in multiplayer (may desync), 0 = offline only.
+EnableInMultiplayer = 0
+
+# 1 = show messages in the Test Mode console (~ key).
+Debug = 0

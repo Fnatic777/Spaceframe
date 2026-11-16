@@ -1,0 +1,19 @@
+# Python bytecode (BC's embedded Python writes .pyc next to scripts)
+*.pyc
+*.pyo
+__pycache__/
+
+# Local logs / backups
+*.log
+*.bak
+*.zip
+
+# OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# Claude Code local state
+.claude/

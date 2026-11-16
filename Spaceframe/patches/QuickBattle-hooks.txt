@@ -1,0 +1,18 @@
+Spaceframe hook blocks in scripts/QuickBattle/QuickBattle.py (CRLF, tab-indented).
+The original game file is NOT stored here; keep a copy as QuickBattle.py.mvbak.
+
+== Block 1 (start of the battle, after Tactical.Interface.ShieldPercentages.init()) ==
+	# Spaceframe - start
+	try:
+		import Custom.Spaceframe.Spaceframe
+		Custom.Spaceframe.Spaceframe.Start(pMission)
+	except:
+		pass
+
+== Block 2 (end of the battle) ==
+	# Spaceframe - end
+	try:
+		import Custom.Spaceframe.Spaceframe
+		Custom.Spaceframe.Spaceframe.Stop()
+	except:
+		pass
