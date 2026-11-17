@@ -4,6 +4,7 @@ Load game modules with load_module(): it reads the CRLF Python 1.5 source,
 swaps dict.has_key for __contains__ and runs it against these mocks.
 """
 import os
+import re
 import sys
 import types
 
@@ -670,6 +671,8 @@ class Core:
 		self.modules = {}
 		self.logs = []
 		self.g_pMission = object()
+		self.interval = 0.25
+		self.ships = []
 
 	def GetShipTech(self, pShip, sTech, pDefault=0):
 		d = self.techs.get(pShip.GetName(), {})
@@ -683,6 +686,16 @@ class Core:
 
 	def GetConfigValue(self, sName, pDefault):
 		return pDefault
+
+	# Added for the characterization tests (AblativeArmor, MVShields).
+	def GetShipFileName(self, pShip):
+		return pShip.GetName()
+
+	def GetInterval(self):
+		return self.interval
+
+	def GetShipsInPlay(self):
+		return [], self.ships
 
 
 def make_app():
@@ -768,6 +781,8 @@ def install(App):
 def load_module(relpath, name):
 	src = open(GAME + "/" + relpath, "rb").read().decode("ascii")
 	src = src.replace("\r\n", "\n").replace(".has_key(", ".__contains__(")
+	# Python 1.5 keys() is a list snapshot: allow deleting while looping over it.
+	src = re.sub(r"\bin ([\w\.]+)\.keys\(\):", r"in list(\1.keys()):", src)
 	mod = types.ModuleType(name)
 	mod.__file__ = relpath
 	sys.modules[name] = mod

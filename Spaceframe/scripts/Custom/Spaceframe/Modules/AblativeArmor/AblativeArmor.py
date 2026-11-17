@@ -1,6 +1,6 @@
 ###############################################################################
 #	Ablative Armor
-#	Spaceframe module, version 1.5
+#	Spaceframe module, version 1.6
 #
 #	Gives a ship a layer of ablative armor. Once damage gets past the
 #	shields, the armor absorbs it before it reaches the hull or any
@@ -97,12 +97,14 @@ def GetArmorPercent(pShip):
 
 	# 1) Spaceframe's Ships.py (or the ship's Bedrock plugin), via the core.
 	#    -1 (Def in Ships.py) means DefaultArmor from this Config.py.
-	fValue = g_pCore.GetShipTech(pShip, NAME, 0)
+	fValue = g_pCore.GetShipTech(pShip, NAME, None)
 	if fValue == -1:
 		fValue = getattr(GetConfig(), "DefaultArmor", 50)
 
-	# 2) Old list in this module's Config.py, still accepted.
-	if fValue <= 0:
+	# 2) Old list in this module's Config.py, still accepted, but only for
+	#    ships with no entry at all above (an explicit 0 stays 0).
+	if fValue == None:
+		fValue = 0.0
 		try:
 			dShips = GetConfig().Ships
 			if dShips.has_key(sName):
@@ -158,6 +160,42 @@ def GetArmorComplexity(pShip):
 	return fHull * g_fArmorComplexity
 
 
+def RegisterArmorSubsystem(pShip, pSub, iAddToRepair = 1):
+	# Register the armor with the repair system, so it shows in the
+	# repair list and the repair teams work on it. A reused armor
+	# (iAddToRepair = 0) was registered when it was created: adding it
+	# again could duplicate it in the repair list.
+	if iAddToRepair:
+		try:
+			pShip.GetRepairSubsystem().AddSubsystem(pSub)
+		except:
+			g_pCore.Log(NAME, "Could not register the armor with the repair system: " + str(sys.exc_info()[1]))
+	# Let the player's damage display know about the new subsystem.
+	try:
+		import MissionLib
+		pPlayer = MissionLib.GetPlayer()
+		if (pPlayer != None) and (pPlayer.GetObjID() == pShip.GetObjID()):
+			pDisplay = App.TacticalControlWindow_GetTacticalControlWindow().GetShipDisplay()
+			pDisplay.GetDamageDisplay().UpdateForNewShip()
+	except:
+		pass
+
+
+def FindArmorSubsystem(pShip):
+	# The ship's existing "Ablative Armor" subsystem (left by an earlier
+	# record of the same ship), or None.
+	try:
+		for pSub in GetSubsystems(pShip):
+			try:
+				if pSub.GetName() == ARMOR_NAME:
+					return pSub
+			except:
+				pass
+	except:
+		g_pCore.Log(NAME, "Could not look for an existing armor subsystem: " + str(sys.exc_info()[1]))
+	return None
+
+
 def CreateArmorSubsystem(pShip, fMax, fComplexity):
 	# Creates the "Ablative Armor" subsystem on the ship. Returns it, or
 	# None if the game does not accept it.
@@ -208,21 +246,7 @@ def CreateArmorSubsystem(pShip, fMax, fComplexity):
 		pSub = None
 
 	if pSub != None:
-		# Register the armor with the repair system, so it shows in the
-		# repair list and the repair teams work on it.
-		try:
-			pShip.GetRepairSubsystem().AddSubsystem(pSub)
-		except:
-			g_pCore.Log(NAME, "Could not register the armor with the repair system: " + str(sys.exc_info()[1]))
-		# Let the player's damage display know about the new subsystem.
-		try:
-			import MissionLib
-			pPlayer = MissionLib.GetPlayer()
-			if (pPlayer != None) and (pPlayer.GetObjID() == pShip.GetObjID()):
-				pDisplay = App.TacticalControlWindow_GetTacticalControlWindow().GetShipDisplay()
-				pDisplay.GetDamageDisplay().UpdateForNewShip()
-		except:
-			pass
+		RegisterArmorSubsystem(pShip, pSub)
 
 	if not g_iReported:
 		g_iReported = 1
@@ -292,7 +316,13 @@ def NewRecord(pShip, fPercent):
 
 	pArmor = None
 	if g_iCreateSubsystem:
-		pArmor = CreateArmorSubsystem(pShip, fMax, fComplexity)
+		# A ship that comes back keeps its armor subsystem: reuse it as is
+		# (condition kept) instead of creating a second one.
+		pArmor = FindArmorSubsystem(pShip)
+		if pArmor != None:
+			RegisterArmorSubsystem(pShip, pArmor, 0)
+		else:
+			pArmor = CreateArmorSubsystem(pShip, fMax, fComplexity)
 	iArmorID = None
 	if pArmor != None:
 		try:
@@ -523,15 +553,29 @@ def Stop():
 	g_dShips = {}
 
 
+def GetShipLabel(pShip):
+	try:
+		return str(pShip.GetName())
+	except:
+		return "?"
+
+
 def Tick(lShips):
 	fSeconds = g_pCore.GetInterval()
 	dAlive = {}
 	for pShip in lShips:
-		lRecord = GetRecord(pShip)
-		dAlive[pShip.GetObjID()] = 1
-		if lRecord != None:
-			Absorb(pShip, lRecord)
-			Regenerate(pShip, lRecord, fSeconds)
+		# Marked alive first, so a ship that errors keeps its record.
+		try:
+			dAlive[pShip.GetObjID()] = 1
+		except:
+			pass
+		try:
+			lRecord = GetRecord(pShip)
+			if lRecord != None:
+				Absorb(pShip, lRecord)
+				Regenerate(pShip, lRecord, fSeconds)
+		except:
+			g_pCore.Log(NAME, "Error on ship " + GetShipLabel(pShip) + ": " + str(sys.exc_info()[0]) + " - " + str(sys.exc_info()[1]))
 
 	# Forget ships that are gone, so no stale subsystem is ever touched.
 	for iID in g_dShips.keys():

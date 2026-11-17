@@ -1,6 +1,6 @@
 ###############################################################################
 #	MV Shields - Multivectral Shields
-#	Spaceframe module, version 0.6
+#	Spaceframe module, version 0.7
 #
 #	Makes the 6 shield facings of a ship work as a single shield: the total
 #	charge is redistributed among the facings in proportion to each facing's
@@ -47,12 +47,14 @@ def GetMVValue(pShip):
 
 	# 1) Spaceframe's Ships.py (or the ship's Bedrock plugin), via the core.
 	#    -1 (Def in Ships.py) means DefaultEfficiency from this Config.py.
-	iValue = g_pCore.GetShipTech(pShip, NAME, 0)
+	iValue = g_pCore.GetShipTech(pShip, NAME, None)
 	if iValue == -1:
 		iValue = getattr(GetConfig(), "DefaultEfficiency", 100)
 
-	# 2) Old list in this module's Config.py, still accepted.
-	if iValue <= 0:
+	# 2) Old list in this module's Config.py, still accepted, but only for
+	#    ships with no entry at all above (an explicit 0 stays 0).
+	if iValue == None:
+		iValue = 0
 		try:
 			dShips = GetConfig().Ships
 			if dShips.has_key(sName):
@@ -158,9 +160,16 @@ def Tick(lShips):
 	if (g_iMode != 2) and (g_iMode != 3):
 		return
 	for pShip in lShips:
-		iValue = GetMVValue(pShip)
-		if iValue > 0:
-			EqualizeShip(pShip, iValue)
+		try:
+			iValue = GetMVValue(pShip)
+			if iValue > 0:
+				EqualizeShip(pShip, iValue)
+		except:
+			try:
+				sShip = str(pShip.GetName())
+			except:
+				sShip = "?"
+			g_pCore.Log(NAME, "Error on ship " + sShip + ": " + str(sys.exc_info()[0]) + " - " + str(sys.exc_info()[1]))
 
 
 def WeaponHit(pShip, pEvent):

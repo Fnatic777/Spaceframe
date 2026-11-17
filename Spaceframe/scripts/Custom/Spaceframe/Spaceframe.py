@@ -1,6 +1,6 @@
 ###############################################################################
 #	Spaceframe - lightweight module framework for Bridge Commander
-#	Version 0.4
+#	Version 0.6
 #
 #	A small core that loads gameplay modules and gives them shared services,
 #	so every module does not need its own timer, event handler or hook in the
@@ -40,7 +40,7 @@ import App
 import sys
 import string
 
-VERSION = "0.5"
+VERSION = "0.6"
 MODULES_PATH = "scripts/Custom/Spaceframe/Modules"
 MODULES_PACKAGE = "Custom.Spaceframe.Modules."
 HIT_HANDLER = "Custom.Spaceframe.Spaceframe.OnWeaponHit"
@@ -303,16 +303,21 @@ def GetModule(sName):
 	return None
 
 
-def CallModules(sFunction, lArgs, bDisableOnError = 0):
-	# Calls sFunction on every active module that defines it.
+def CallModules(sFunction, lArgs, bDisableOnError = 0, bAll = 0):
+	# Calls sFunction on every active module that defines it (bAll: on every
+	# loaded module, disabled ones too; used for Stop so they can clean up).
 	# With bDisableOnError, a module that fails is disabled at once
 	# (used for Start: a module that cannot start must not keep running).
+	# After a Tick that completes without error the module's error counter
+	# goes back to 0: MAX_ERRORS counts consecutive failing cycles.
 	for lEntry in g_lModules:
-		if lEntry[2]:
+		if lEntry[2] or bAll:
 			pFunc = getattr(lEntry[1], sFunction, None)
 			if pFunc != None:
 				try:
 					apply(pFunc, lArgs)
+					if sFunction == "Tick":
+						lEntry[3] = 0
 				except:
 					ModuleError(lEntry, sFunction)
 					if bDisableOnError:
@@ -385,13 +390,22 @@ def Start(pMission = None):
 		Log("Spaceframe", "No modules to run.")
 		return
 
-	CallModules("Start", (sys.modules[__name__],), 1)
-
+	# The interval is set before the modules start, so GetInterval() is right in Start().
+	fInterval = 0.25
+	bIntervalOK = 1
 	try:
 		fInterval = float(GetConfigValue("Interval", 0.25))
 		if fInterval < 0.05:
 			fInterval = 0.05
 		g_fInterval = fInterval
+	except:
+		bIntervalOK = 0
+
+	CallModules("Start", (sys.modules[__name__],), 1)
+
+	try:
+		if not bIntervalOK:
+			raise ValueError("bad Interval")
 		g_pRunner = Runner(fInterval)
 	except:
 		Log("Spaceframe", "Could not start the timer.")
@@ -423,7 +437,7 @@ def Stop():
 		g_pRunner.pProcess = None
 		g_pRunner = None
 	if len(g_lModules) > 0:
-		CallModules("Stop", ())
+		CallModules("Stop", (), 0, 1)
 		g_lModules = []
 		Log("Spaceframe", "Spaceframe stopped.")
 
