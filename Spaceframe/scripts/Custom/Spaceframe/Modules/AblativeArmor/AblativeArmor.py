@@ -44,6 +44,7 @@ import App
 import sys
 
 NAME = "AblativeArmor"
+VERSION = "1.6"
 ARMOR_NAME = "Ablative Armor"
 MIN_ARMOR = 1.0		# the armor subsystem never goes below this condition
 
@@ -59,6 +60,7 @@ REC_COMPLEXITY = 6	# armor repair complexity
 g_pCore = None		# the Spaceframe core, set in Start()
 g_dTypeCache = {}	# ship file name -> armor percentage (0 = no armor)
 g_dShips = {}		# ship ObjID -> armor record, or None (no armor)
+g_dErrorLogged = {}	# ship ObjID -> last error text logged for it
 g_fSubsystemCost = 1.0
 g_fArmorComplexity = 2.0	# times the hull's repair complexity
 g_fBleedStart = 0.5		# armor fraction below which hits bleed through
@@ -524,12 +526,13 @@ def GetArmorInfo(pShip):
 #	Spaceframe module interface
 ###############################################################################
 def Start(pCore):
-	global g_pCore, g_dTypeCache, g_dShips, g_iReported
+	global g_pCore, g_dTypeCache, g_dShips, g_iReported, g_dErrorLogged
 	global g_fSubsystemCost, g_fArmorComplexity, g_iCreateSubsystem, g_iTargetable
 	global g_fBleedStart, g_fBleedMax
 	g_pCore = pCore
 	g_dTypeCache = {}
 	g_dShips = {}
+	g_dErrorLogged = {}
 	g_iReported = 0
 	import Custom.Spaceframe.Modules.AblativeArmor.Config
 	reload(Custom.Spaceframe.Modules.AblativeArmor.Config)
@@ -548,9 +551,10 @@ def Start(pCore):
 
 
 def Stop():
-	global g_dTypeCache, g_dShips
+	global g_dTypeCache, g_dShips, g_dErrorLogged
 	g_dTypeCache = {}
 	g_dShips = {}
+	g_dErrorLogged = {}
 
 
 def GetShipLabel(pShip):
@@ -558,6 +562,25 @@ def GetShipLabel(pShip):
 		return str(pShip.GetName())
 	except:
 		return "?"
+
+
+def LogShipError(pShip):
+	# Logs a ship's error only the first time (or when its text changes):
+	# a ship failing on every cycle would log a line every interval.
+	sText = str(sys.exc_info()[0]) + " - " + str(sys.exc_info()[1])
+	try:
+		iID = pShip.GetObjID()
+	except:
+		iID = None
+	if iID != None:
+		if g_dErrorLogged.has_key(iID) and (g_dErrorLogged[iID] == sText):
+			return
+		g_dErrorLogged[iID] = sText
+	try:
+		sShip = str(pShip.GetName())
+	except:
+		sShip = "?"
+	g_pCore.Log(NAME, "Error on ship " + sShip + ": " + sText)
 
 
 def Tick(lShips):
@@ -575,12 +598,15 @@ def Tick(lShips):
 				Absorb(pShip, lRecord)
 				Regenerate(pShip, lRecord, fSeconds)
 		except:
-			g_pCore.Log(NAME, "Error on ship " + GetShipLabel(pShip) + ": " + str(sys.exc_info()[0]) + " - " + str(sys.exc_info()[1]))
+			LogShipError(pShip)
 
 	# Forget ships that are gone, so no stale subsystem is ever touched.
 	for iID in g_dShips.keys():
 		if not dAlive.has_key(iID):
 			del g_dShips[iID]
+	for iID in g_dErrorLogged.keys():
+		if not dAlive.has_key(iID):
+			del g_dErrorLogged[iID]
 
 
 def WeaponHit(pShip, pEvent):

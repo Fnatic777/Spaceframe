@@ -1,7 +1,7 @@
-Spaceframe v0.5 - lightweight module framework for Bridge Commander
+Spaceframe v0.6 - lightweight module framework for Bridge Commander
 ====================================================================
-Included modules: MV Shields (Multivectral Shields) v0.6, Ablative Armor v1.5,
-Status HUD v0.12, Auto Fire v0.3
+Included modules: MV Shields (Multivectral Shields) v0.7, Ablative Armor v1.6,
+Status HUD v0.12, Auto Fire v0.4
 
   [EN] English ........ section 1
   [ES] Espanol ........ seccion 2
@@ -17,7 +17,9 @@ What it is
 Spaceframe is a small core that loads gameplay modules and gives them shared
 services: one timer, one weapon hit handler, ship identification, logging and
 error isolation. Modules do not touch the game files, and a module that fails
-is disabled alone while the others keep running. Built for BC Remastered and
+is disabled alone while the others keep running. A module that fails on one
+ship does not stop the others, and it is only disabled after 50 failing
+cycles in a row. Built for BC Remastered and
 Orion Delta, in plain Python 1.5.2, with no Foundation, QBautostart or
 Kobayashi Maru.
 
@@ -55,6 +57,8 @@ family come from the ship's Orion Delta plugin: Race ("Federation",
 "Romulan"...) and SubMenu (the family, e.g. "Galaxy" for all its variants).
 Ships without a plugin, or with SubMenu "N/A", have no race or family. The
 diagnostics command shows each ship's race and family.
+An explicit 0 (ship, race or family) switches the technology off for real: an
+old "Ships" list in a module's Config.py no longer turns it back on.
 Def = the default value set in the module's Config.py; or a number:
 - "MVShields": efficiency, 1 to 100 (default: DefaultEfficiency, 100). It is
   the share of the difference between the facings corrected each time; lower
@@ -97,6 +101,8 @@ hull or any subsystem. When the armor runs out, damage passes normally.
 - HUD: drawn by the Status HUD module (below).
 - If the game refuses the subsystem, the module uses internal armor with its
   own regeneration instead (with Debug = 1, a message shows which mode is on).
+- A ship that leaves and comes back keeps its single Ablative Armor
+  subsystem (no duplicate, its condition is kept).
 
 Settings: scripts\Custom\Spaceframe\Modules\AblativeArmor\Config.py
 - DefaultArmor (50), ArmorComplexity (200), BleedStart (50), BleedMax (50),
@@ -165,7 +171,9 @@ has "AutoFire" in Ships.py.
   group picks its own enemy (phasers the nearest they can hit, torpedoes
   and pulse weapons the best solution).
 Settings: scripts\Custom\Spaceframe\Modules\AutoFire\Config.py (each setting
-is described there; distances in km as shown in game).
+is described there; distances in km as shown in game). They are read once
+when a battle starts: edits apply from the next battle (Quick Battle), not
+mid-battle.
 
 Which ship name to use
 ----------------------
@@ -184,7 +192,7 @@ Start the game with the "Test Mode" shortcut, enter a Quick Battle, open the
 console (~ key) and type, one line at a time:
     import Custom.Spaceframe.Spaceframe
     Custom.Spaceframe.Spaceframe.Diag()
-It shows the core state, every module, every ship with its file name and,
+It shows the core state, every module (with its version), every ship with its file name and,
 for MV Shields, the charge of each facing.
 
 Writing a module
@@ -225,7 +233,9 @@ Spaceframe es un nucleo pequeno que carga modulos de juego y les ofrece
 servicios compartidos: un temporizador, un manejador de impactos de arma,
 identificacion de naves, registro de mensajes y aislamiento de errores. Los
 modulos no tocan los archivos del juego, y un modulo que falla se desactiva
-solo, mientras los demas siguen funcionando. Hecho para BC Remastered y
+solo, mientras los demas siguen funcionando. Un modulo que falla en una nave
+no detiene a los demas, y solo se desactiva tras 50 ciclos seguidos con
+error. Hecho para BC Remastered y
 Orion Delta, en Python 1.5.2 puro, sin Foundation, QBautostart ni
 Kobayashi Maru.
 
@@ -264,6 +274,8 @@ familia vienen del plugin Orion Delta de la nave: Race ("Federation",
 variantes). Las naves sin plugin, o con SubMenu "N/A", no tienen raza ni
 familia. El comando de diagnostico muestra la raza y la familia de cada
 nave.
+Un 0 explicito (nave, raza o familia) desactiva la tecnologia de verdad: una
+lista "Ships" vieja en el Config.py de un modulo ya no la vuelve a activar.
 Def = el valor por defecto definido en el Config.py del modulo; o un
 numero:
 - "MVShields": eficiencia, 1 a 100 (por defecto: DefaultEfficiency, 100). Es
@@ -310,6 +322,8 @@ dano pasa normalmente.
 - HUD: lo dibuja el modulo Status HUD (abajo).
 - Si el juego rechaza el subsistema, el modulo usa un blindaje interno con
   su propia regeneracion (con Debug = 1, un mensaje indica el modo activo).
+- Una nave que sale y vuelve conserva su unico subsistema Ablative Armor
+  (sin duplicado, mantiene su estado).
 
 Configuracion: scripts\Custom\Spaceframe\Modules\AblativeArmor\Config.py
 - DefaultArmor (50), ArmorComplexity (200), BleedStart (50), BleedMax (50),
@@ -381,7 +395,9 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   2 = cada grupo de armas elige su enemigo (phasers el mas cercano que
   alcanzan, torpedos y pulso la mejor solucion).
 Configuracion: scripts\Custom\Spaceframe\Modules\AutoFire\Config.py (cada
-opcion esta descrita alli; distancias en km como se ven en el juego).
+opcion esta descrita alli; distancias en km como se ven en el juego). Se
+leen una vez al empezar la batalla: los cambios valen desde la proxima
+batalla (Quick Battle), no durante la actual.
 
 Que nombre de nave usar
 -----------------------
@@ -401,7 +417,7 @@ Abra el juego con el acceso directo "Test Mode", entre en una Quick Battle,
 abra la consola (tecla ~) y escriba, una linea a la vez:
     import Custom.Spaceframe.Spaceframe
     Custom.Spaceframe.Spaceframe.Diag()
-Muestra el estado del nucleo, cada modulo, cada nave con su nombre de archivo
+Muestra el estado del nucleo, cada modulo (con su version), cada nave con su nombre de archivo
 y, para MV Shields, la carga de cada cara.
 
 Crear un modulo
@@ -442,7 +458,9 @@ O Spaceframe e um nucleo pequeno que carrega modulos de jogo e oferece a eles
 servicos compartilhados: um timer, um handler de impacto de arma,
 identificacao de naves, log e isolamento de erros. Os modulos nao mexem nos
 arquivos do jogo, e um modulo que falha e desligado sozinho, enquanto os
-outros continuam rodando. Feito para o BC Remastered e o Orion Delta, em
+outros continuam rodando. Um modulo que falha em uma nave nao para os
+outros, e so e desligado depois de 50 ciclos seguidos com erro. Feito para o
+BC Remastered e o Orion Delta, em
 Python 1.5.2 puro, sem Foundation, QBautostart nem Kobayashi Maru.
 
 Arquivos
@@ -479,6 +497,8 @@ do plugin Orion Delta da nave: Race ("Federation", "Romulan"...) e SubMenu
 (a familia, ex. "Galaxy" para todas as variantes). Naves sem plugin, ou com
 SubMenu "N/A", nao tem raca nem familia. O comando de diagnostico mostra a
 raca e a familia de cada nave.
+Um 0 explicito (nave, raca ou familia) desliga a tecnologia de verdade: uma
+lista "Ships" antiga no Config.py de um modulo nao a liga mais.
 Def = o valor padrao definido no Config.py do modulo; ou um numero:
 - "MVShields": eficiencia, 1 a 100 (padrao: DefaultEfficiency, 100). E a
   parte da diferenca entre as faces corrigida a cada vez; valores menores
@@ -524,6 +544,8 @@ normalmente.
 - HUD: desenhado pelo modulo Status HUD (abaixo).
 - Se o jogo recusar o subsistema, o modulo usa uma blindagem interna com
   regeneracao propria (com Debug = 1, uma mensagem mostra o modo ativo).
+- Uma nave que sai e volta mantem seu unico subsistema Ablative Armor
+  (sem duplicata, mantem a condicao).
 
 Configuracao: scripts\Custom\Spaceframe\Modules\AblativeArmor\Config.py
 - DefaultArmor (50), ArmorComplexity (200), BleedStart (50), BleedMax (50),
@@ -592,7 +614,9 @@ tiver "AutoFire" no Ships.py.
   2 = cada grupo de armas escolhe o proprio inimigo (phasers o mais
   proximo que alcancam, torpedos e pulso a melhor solucao).
 Configuracao: scripts\Custom\Spaceframe\Modules\AutoFire\Config.py (cada
-opcao esta descrita la; distancias em km como aparecem no jogo).
+opcao esta descrita la; distancias em km como aparecem no jogo). Sao lidas
+uma vez ao comecar a batalha: as mudancas valem a partir da proxima batalha
+(Quick Battle), nao durante a atual.
 
 Qual nome de nave usar
 ----------------------
@@ -611,7 +635,7 @@ Abra o jogo pelo atalho "Test Mode", entre num Quick Battle, abra o console
 (tecla ~) e digite, uma linha de cada vez:
     import Custom.Spaceframe.Spaceframe
     Custom.Spaceframe.Spaceframe.Diag()
-Mostra o estado do nucleo, cada modulo, cada nave com o nome do arquivo e,
+Mostra o estado do nucleo, cada modulo (com a sua versao), cada nave com o nome do arquivo e,
 para o MV Shields, a carga de cada face.
 
 Criar um modulo

@@ -21,6 +21,7 @@ import App
 import sys
 
 NAME = "AutoFire"
+VERSION = "0.4"
 BUTTON_TEXT = "Auto Fire"
 
 g_pCore = None

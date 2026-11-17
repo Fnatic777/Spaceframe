@@ -29,6 +29,7 @@ import App
 import sys
 
 NAME = "StatusHUD"
+VERSION = "0.12"
 ICON_SOLID = 200	# solid LCARS icon, the same one the power bars use
 EPSILON = 0.0005	# smallest size or position change worth applying
 MOVE_TOLERANCE = 0.003	# a pane further than this from where we left it

@@ -575,6 +575,109 @@ def test_armor_error_does_not_stop_mvshields():
 	assert entry(C, "MVShields")[3] == 0 and b.shields.writes != []
 
 
+def banner_spy():
+	lBanners = []
+	ml = sys.modules["MissionLib"]
+	ml.TextBanner = lambda *a: lBanners.append(a)
+	return lBanners
+
+
+def test_config_failure_shows_a_banner_and_stays_off():
+	log, lMods = fakes("Alpha")
+	C, App = load_core(lMods)
+	lBanners = banner_spy()
+	import builtins
+
+	def bad_reload(m):
+		if m is sys.modules["Custom.Spaceframe.Config"]:
+			raise SyntaxError("broken Config.py")
+		return m
+	pOld = builtins.reload
+	builtins.reload = bad_reload
+	try:
+		C.Start(object())
+	finally:
+		builtins.reload = pOld
+	assert len(lBanners) == 1
+	assert "Config.py has an error" in lBanners[0][1].s
+	assert C.g_lModules == [] and C.g_pRunner == None and log == []
+
+
+def test_banner_never_shown_on_success_or_when_no_module_loads():
+	log, lMods = fakes("Alpha")
+	C, App = load_core(lMods)
+	lBanners = banner_spy()
+	C.Start(object())
+	C.Stop()
+	C2, App2 = load_core([])
+	lBanners2 = banner_spy()
+	C2.Start(object())
+	assert lBanners == [] and lBanners2 == []
+
+
+def test_show_problem_survives_a_failing_banner():
+	C, App = load_core([])
+	def boom(*a):
+		raise RuntimeError("no UI")
+	sys.modules["MissionLib"].TextBanner = boom
+	C.ShowProblem("x")
+
+
+def test_diag_prints_each_module_version(capsys=None):
+	log, lMods = fakes("Alpha", "Beta")
+	lMods[0][1].VERSION = "1.2"
+	C, App = load_core(lMods)
+	C.Start(object())
+	C.GetShipsInPlay = lambda: ([], [])
+	import io
+	import contextlib
+	f = io.StringIO()
+	with contextlib.redirect_stdout(f):
+		C.Diag()
+	sOut = f.getvalue()
+	assert "Module Alpha v1.2: active = 1, errors = 0" in sOut
+	assert "Module Beta v?: active = 1, errors = 0" in sOut
+
+
+def test_real_modules_have_versions_matching_their_headers():
+	import re
+	for sName in ("AutoFire", "AblativeArmor", "MVShields", "StatusHUD"):
+		sSrc = open(mock_app.GAME + "/Modules/" + sName + "/" + sName + ".py", "rb").read().decode("ascii")
+		sHeader = re.search(r"Spaceframe module, version ([0-9.]+)", sSrc).group(1)
+		sConst = re.search(r'^VERSION = "([0-9.]+)"', sSrc, re.M).group(1)
+		assert sHeader == sConst, sName
+
+
+def test_ship_error_is_logged_once_per_distinct_text():
+	C, AA, MV = real_core()
+	a = FakeShip("Alpha", 1, 1000.0, [("Phasers", 100.0)], BadShields([100.0] * 6, unbalanced()))
+	lLog = []
+	C.Log = lambda s, t: lLog.append(t)
+	tick_all(C, 3, [a])
+	assert len([t for t in lLog if "Error on ship" in t]) == 1
+	# a different error text for the same ship is logged again
+	a.shields.GetCurShields = lambda i: (_ for _ in ()).throw(ValueError("other"))
+	tick_all(C, 2, [a])
+	assert len([t for t in lLog if "Error on ship" in t]) == 2
+	# Stop() clears the memory: after a restart the same error logs again
+	MV.Stop()
+	assert MV.g_dErrorLogged == {}
+
+
+def test_armor_ship_error_logged_once_and_forgotten_when_ship_leaves():
+	C, AA, MV = real_core()
+	a = FakeShip("Alpha", 1, 1000.0, [("Phasers", 100.0)])
+	tick_all(C, 1, [a])
+	lLog = []
+	C.Log = lambda s, t: lLog.append(t)
+	a.Sub("Phasers").bRaise = 1
+	tick_all(C, 4, [a])
+	assert len([t for t in lLog if "Error on ship" in t]) == 1
+	assert AA.g_dErrorLogged.keys() == {1: 1}.keys()
+	tick_all(C, 1, [])
+	assert AA.g_dErrorLogged == {}
+
+
 def run():
 	return fake_ships.run(globals())
 

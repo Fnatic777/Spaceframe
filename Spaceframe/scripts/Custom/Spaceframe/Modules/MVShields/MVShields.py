@@ -22,10 +22,12 @@ import App
 import sys
 
 NAME = "MVShields"
+VERSION = "0.7"
 NUM_FACES = 6
 
 g_pCore = None		# the Spaceframe core, set in Start()
 g_dTypeCache = {}	# ship file name -> MV value (0 = no MV)
+g_dErrorLogged = {}	# ship ObjID -> last error text logged for it
 g_iMode = 3		# 0 = off, 1 = on hit only, 2 = cycle only, 3 = both
 
 
@@ -127,9 +129,10 @@ def EqualizeShip(pShip, iValue):
 #	Spaceframe module interface
 ###############################################################################
 def Start(pCore):
-	global g_pCore, g_dTypeCache, g_iMode
+	global g_pCore, g_dTypeCache, g_iMode, g_dErrorLogged
 	g_pCore = pCore
 	g_dTypeCache = {}
+	g_dErrorLogged = {}
 	import Custom.Spaceframe.Modules.MVShields.Config
 	reload(Custom.Spaceframe.Modules.MVShields.Config)
 	pConfig = GetConfig()
@@ -151,8 +154,28 @@ def Start(pCore):
 
 
 def Stop():
-	global g_dTypeCache
+	global g_dTypeCache, g_dErrorLogged
 	g_dTypeCache = {}
+	g_dErrorLogged = {}
+
+
+def LogShipError(pShip):
+	# Logs a ship's error only the first time (or when its text changes):
+	# a ship failing on every cycle would log a line every interval.
+	sText = str(sys.exc_info()[0]) + " - " + str(sys.exc_info()[1])
+	try:
+		iID = pShip.GetObjID()
+	except:
+		iID = None
+	if iID != None:
+		if g_dErrorLogged.has_key(iID) and (g_dErrorLogged[iID] == sText):
+			return
+		g_dErrorLogged[iID] = sText
+	try:
+		sShip = str(pShip.GetName())
+	except:
+		sShip = "?"
+	g_pCore.Log(NAME, "Error on ship " + sShip + ": " + sText)
 
 
 def Tick(lShips):
@@ -165,11 +188,7 @@ def Tick(lShips):
 			if iValue > 0:
 				EqualizeShip(pShip, iValue)
 		except:
-			try:
-				sShip = str(pShip.GetName())
-			except:
-				sShip = "?"
-			g_pCore.Log(NAME, "Error on ship " + sShip + ": " + str(sys.exc_info()[0]) + " - " + str(sys.exc_info()[1]))
+			LogShipError(pShip)
 
 
 def WeaponHit(pShip, pEvent):

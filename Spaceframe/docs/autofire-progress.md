@@ -6,7 +6,7 @@ Pre-flight: shared interfaces checked
 - T1 -> StatusHUD: GetModule("AutoFire").IsEnabled(): consistent.
 
 Task 1: Ruling: "AUTO FIRE" shown by renaming the player panel title (e.g. "Shields - Auto Fire") instead of a text on the status line - the status line's left side already holds "Armor NN%", so a label there would collide; the title has free room and does not change the panel height - cost if wrong: one more HUD tweak.
-Task 1: Ruling: no git in this project; "commit" = install on the PC with mtime guard + cmp, then the user's in-game check, as the plan states.
+Task 1: Ruling: no git in this project; "commit" = install on the PC with mtime guard + cmp, then the user's in-game check, as the plan states. (superseded: the repo now uses git; commits are made only when the user asks)
 Task 1: Ruling: execution pauses after each task's install for the user's in-game test, because every task's Step 5 requires it (overrides "continuous execution").
 Task 1: Ruling: ToggleKey letter converted to lower-case code by arithmetic (not string.lower) - the game binds lower-case codes (L = 108) - cost if wrong: key bound to wrong code, user reports.
 Task 1: Ruling: "AutoFire": Def added to Galaxy, Defiant, Odyssey, Fighter (not Peregrine, carrier-launched AI) - user can edit Ships.py - cost if wrong: one line.

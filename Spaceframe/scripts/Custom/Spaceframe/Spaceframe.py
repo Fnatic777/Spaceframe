@@ -86,6 +86,15 @@ def Log(sModule, sText):
 		pass
 
 
+def ShowProblem(sText):
+	# Visible banner for a failure the player must know about (not Debug).
+	try:
+		import MissionLib
+		MissionLib.TextBanner(None, App.TGString(sText), 0.0, 0.0, 0.1, 12, 1)
+	except:
+		pass
+
+
 def ModuleError(lEntry, sWhere):
 	lEntry[3] = lEntry[3] + 1
 	try:
@@ -383,6 +392,8 @@ def Start(pMission = None):
 			Log("Spaceframe", "Multiplayer detected, Spaceframe disabled.")
 			return
 	except:
+		Log("Spaceframe", "Could not load Config.py: " + str(sys.exc_info()[1]))
+		ShowProblem("Spaceframe: Config.py has an error, the mod is off for this battle")
 		return
 
 	LoadModules()
@@ -455,7 +466,7 @@ def Diag():
 		print ("Timer: running, active = " + str(g_pRunner.bActive))
 	print ("Weapon hit handler: " + str(g_pMission != None))
 	for lEntry in g_lModules:
-		print ("Module " + lEntry[0] + ": active = " + str(lEntry[2]) + ", errors = " + str(lEntry[3]))
+		print ("Module " + lEntry[0] + " v" + str(getattr(lEntry[1], "VERSION", "?")) + ": active = " + str(lEntry[2]) + ", errors = " + str(lEntry[3]))
 	lSets, lShips = GetShipsInPlay()
 	print ("Sets: " + str(len(lSets)) + ", live ships: " + str(len(lShips)))
 	for pShip in lShips:
