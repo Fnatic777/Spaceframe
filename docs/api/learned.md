@@ -55,3 +55,9 @@ guesses as `(unconfirmed)`. Names only are in `App-index.txt` (grep it).
 - Enemy check: mission's enemy group `IsNameInGroup(name)`.
 - Hull repair complexity usually 1.0 (Constitution 3.0; NX, Fighter 2.0); some ships
   have two repair subsystems.
+
+## Spaceframe lifecycle (confirmed in game, Spaceframe 0.6 / AutoFire 0.4)
+- A module that fails or is disabled still needs its `Stop()` (handlers, buttons, texts): the core now calls `Stop()` on every loaded module, disabled ones included.
+- Subsystems added by a module (e.g. "Ablative Armor") stay on the ship: look for an existing one by `GetName()` among the ship's subsystems before creating another, and do not call `RepairSubsystem.AddSubsystem` a second time for it (a second registration is unconfirmed: avoided). Ship leaving and re-entering the set with the armor reused: played without problems, not tested on its own (unconfirmed).
+- Config read once at `Start` into module globals (AutoFire) works: `Start` already reloads Config, so edits apply from the next battle.
+- Game interpreter is Python 1.5.2: `dict.keys()` is a list (safe to `del` while looping); the py3 mocks must wrap it in `list(...)` (done in `tests/mock_app.py` `load_module`).
