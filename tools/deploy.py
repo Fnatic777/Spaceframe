@@ -24,6 +24,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import zipfile
 
@@ -74,8 +75,25 @@ def mapping(mod, game):
 	return out
 
 
+def committed_sha(src):
+	"""sha256 of src as committed at HEAD, with checkout filters (CRLF) applied; None if absent."""
+	rel = os.path.relpath(src, REPO).replace(os.sep, "/")
+	try:
+		r = subprocess.run(["git", "-C", REPO, "cat-file", "--filters", "HEAD:" + rel], capture_output=True)
+	except OSError:
+		return None
+	if r.returncode:
+		return None
+	return hashlib.sha256(r.stdout).hexdigest()
+
+
 def classify(mod, game, st):
-	"""Yield (state, src, dst, key). state: same|new|changed|edited."""
+	"""Yield (state, src, dst, key). state: same|new|changed|edited.
+
+	The game copy is ours (safe to overwrite) when it matches what we last
+	installed OR what is committed at HEAD - so a lost/absent
+	.deploy-state.json does not turn every repo change into a false "edited".
+	"""
 	rec = st.get(mod, {})
 	for src, dst, key in mapping(mod, game):
 		if not os.path.exists(dst):
@@ -84,8 +102,8 @@ def classify(mod, game, st):
 		hs, hd = sha(src), sha(dst)
 		if hs == hd:
 			yield "same", src, dst, key
-		elif rec.get(key) == hd:
-			yield "changed", src, dst, key  # game still has what we installed
+		elif rec.get(key) == hd or committed_sha(src) == hd:
+			yield "changed", src, dst, key  # game holds a known version of ours
 		else:
 			yield "edited", src, dst, key  # game copy changed outside the repo
 

@@ -26,11 +26,14 @@ Files: CRLF, ASCII only, tab indentation.
 - `python tools/check.py` - lint15 + all mock tests. Must be green before any install.
 - `python tools/deploy.py status|install|pull|backup [Mod]` - install refuses to overwrite files
   the user edited in the game (often `Ships.py`, `Config.py`): `pull`, merge, then install.
+  `edited` is real (game copy matches neither the last install nor HEAD): never `--force`
+  without diffing the game copy first and telling the user.
 - `python tools/build_api_index.py` - regenerate `docs/api/App-index.txt`.
 
 ## Workflow (main agent = coordinator, keep your context small)
-1. Lookups (API names, vanilla usage, ship file names) -> `bc-scout`. Check
-   `docs/api/learned.md` / `App-index.txt` with Grep first if it is a one-liner.
+1. Lookups: one-liners (a name in `App-index.txt`, a fact in `learned.md`, a line in the repo)
+   -> Grep yourself. Wide searches in the game install (vanilla/Bedrock usage of a call,
+   ship label -> file name, several files to compare) -> `bc-scout`.
 2. Code -> `bc-implementer` with a precise spec (files, behavior, config names, tests).
    Trivial config/text edits: do them yourself, then run `check.py`.
 3. Every game-code change -> `bc-auditor` before install. Crash reports -> `bc-auditor` too.

@@ -30,6 +30,16 @@ Code rules (game code under `*/scripts/`):
 Tests (`<Mod>/tests/`, py3 against `mock_app.py`): write the failing test first, then the code.
 Extend `mock_app.py` minimally. Comments in English.
 
+Editing: change files with Edit (small changes) or Write (new/rewritten files). Never patch
+files through shell heredocs or inline python/sed scripts - quoting breaks and edits get lost.
+Bash is for running check.py, tests, grep and git diff only.
+
 Before returning, run `python tools/check.py` and fix until green.
-Report (max ~15 lines): files changed, what each change does, check.py summary line,
-any `(unconfirmed)` API assumption, and what must be verified in game. Do not paste code.
+
+Report in English, plain text, at most 15 lines, no tables, no code, exactly these headings:
+CHECK: <the two summary lines of check.py>
+FILES: <path - one-line change>, one per line
+TESTS CHANGED: <existing tests you modified and why, or "none">
+UNCONFIRMED: <API assumptions or behavior not provable off-game, or "none">
+FOUND: <suspected bugs outside the task, or "none">
+VERIFY IN GAME: <1-3 concrete checks>
