@@ -47,6 +47,7 @@ def test_phaser_low_charge():
 def test_phaser_range_setting():
 	App, AF, ship, target, primary = setup(80.0)
 	AF.GetConfig().PhaserRange = 50
+	AF.LoadConfig()	# settings are cached at Start
 	AF.FireCycle()
 	assert primary.starts() == 0
 

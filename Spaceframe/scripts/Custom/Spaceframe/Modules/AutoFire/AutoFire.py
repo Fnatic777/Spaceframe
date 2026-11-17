@@ -1,7 +1,7 @@
 ###############################################################################
 #	AutoFire.py
 #
-#	Spaceframe module, version 0.3
+#	Spaceframe module, version 0.4
 #
 #	Fires the player's weapons by firing-solution rules while switched on,
 #	so the player can concentrate on manoeuvring. Only the ship the player
@@ -41,6 +41,21 @@ g_iPlayerSpread = None	# the player's torpedo spread, to go back to
 g_iSetSpread = None	# the spread Auto Fire last set
 g_iSpreadShipID = None	# ship whose spread Auto Fire changed
 
+# Settings read once by LoadConfig() at Start (the hot path never asks Config).
+# Initial values = the defaults, so code run before Start behaves the same.
+g_bDebug = 0
+g_iTargetMode = 0
+g_fPhaserMinCharge = 50.0
+g_fPhaserRange = 100.0
+g_iTorpedoReserve = 0
+g_fTorpedoMinSolution = 70.0
+g_iTorpedoRule = 1
+g_fSpreadMinSolution = 85.0
+g_fSpreadMinDistance = 0.0
+g_fPulseMinSolution = 70.0
+g_iPulseRule = 1
+g_iTapFire = 1
+
 KEY_HANDLER = "Custom.Spaceframe.Modules.AutoFire.AutoFire.OnKeyboard"
 BUTTON_HANDLER = "Custom.Spaceframe.Modules.AutoFire.AutoFire.OnMenuButton"
 MANUAL_HANDLER = "Custom.Spaceframe.Modules.AutoFire.AutoFire.OnManualFire"
@@ -49,6 +64,33 @@ MANUAL_HANDLER = "Custom.Spaceframe.Modules.AutoFire.AutoFire.OnManualFire"
 def GetConfig():
 	import Custom.Spaceframe.Modules.AutoFire.Config
 	return Custom.Spaceframe.Modules.AutoFire.Config
+
+
+def LoadConfig():
+	# Reads every hot-path setting once (same defaults and conversions as
+	# the code that used to read them each cycle).
+	global g_bDebug, g_iTargetMode, g_fPhaserMinCharge, g_fPhaserRange
+	global g_iTorpedoReserve, g_fTorpedoMinSolution, g_iTorpedoRule
+	global g_fSpreadMinSolution, g_fSpreadMinDistance, g_fPulseMinSolution
+	global g_iPulseRule, g_iTapFire
+	pConfig = GetConfig()
+	g_iTargetMode = int(getattr(pConfig, "TargetMode", 0))
+	g_fPhaserMinCharge = float(getattr(pConfig, "PhaserMinCharge", 50))
+	g_fPhaserRange = float(getattr(pConfig, "PhaserRange", 100))
+	g_iTorpedoReserve = int(getattr(pConfig, "TorpedoReserve", 0))
+	g_fTorpedoMinSolution = float(getattr(pConfig, "TorpedoMinSolution", 70))
+	g_iTorpedoRule = int(getattr(pConfig, "TorpedoRule", 1))
+	g_fSpreadMinSolution = float(getattr(pConfig, "SpreadMinSolution", 85))
+	g_fSpreadMinDistance = float(getattr(pConfig, "SpreadMinDistance", 0))
+	g_fPulseMinSolution = float(getattr(pConfig, "PulseMinSolution", 70))
+	g_iPulseRule = int(getattr(pConfig, "PulseRule", 1))
+	g_iTapFire = int(getattr(pConfig, "TapFire", 1))
+	g_bDebug = 0
+	try:
+		if g_pCore != None:
+			g_bDebug = g_pCore.GetConfigValue("Debug", 0)
+	except:
+		g_bDebug = 0
 
 
 def GetPlayer():
@@ -382,7 +424,7 @@ def GetTargets(pShip):
 	#      a friendly or neutral ship selected, the selection is kept and
 	#      the nearest enemy is fired at;
 	#   2: every enemy, nearest first; each weapon group picks its own.
-	iMode = int(getattr(GetConfig(), "TargetMode", 0))
+	iMode = g_iTargetMode
 	if iMode == 2:
 		return SortByDistance(pShip, GetEnemies(pShip))
 	pSelected = GetPlayerTarget(pShip)
@@ -428,12 +470,11 @@ def GetDistance(pFrom, pTarget):
 
 def PhaserReady(pBank, pTarget):
 	# 1 if this phaser bank should fire at the target now.
-	pConfig = GetConfig()
 	if not pBank.CanHit(pTarget.GetWorldLocation()):
 		return 0
-	if pBank.GetChargePercentage() * 100.0 < float(getattr(pConfig, "PhaserMinCharge", 50)):
+	if pBank.GetChargePercentage() * 100.0 < g_fPhaserMinCharge:
 		return 0
-	fRange = pBank.GetMaxDamageDistance() * float(getattr(pConfig, "PhaserRange", 100)) / 100.0
+	fRange = pBank.GetMaxDamageDistance() * g_fPhaserRange / 100.0
 	if GetDistance(pBank, pTarget) > fRange:
 		return 0
 	return 1
@@ -493,8 +534,7 @@ def TorpedoesLeft(pTorpedoes):
 
 def TorpedoTarget(pShip, pTorpedoes, lTargets, eGroup):
 	# The target with the best firing solution, if good enough.
-	pConfig = GetConfig()
-	if TorpedoesLeft(pTorpedoes) <= int(getattr(pConfig, "TorpedoReserve", 0)):
+	if TorpedoesLeft(pTorpedoes) <= g_iTorpedoReserve:
 		return None
 	pBest = None
 	fBest = -1.0
@@ -506,8 +546,8 @@ def TorpedoTarget(pShip, pTorpedoes, lTargets, eGroup):
 	if pBest == None:
 		return None
 	g_dScore[eGroup] = fBest
-	fMinimum = float(getattr(pConfig, "TorpedoMinSolution", 70))
-	if int(getattr(pConfig, "TorpedoRule", 1)) == 2:
+	fMinimum = g_fTorpedoMinSolution
+	if g_iTorpedoRule == 2:
 		fMinimum = 1.0	# firing cone: any tube inside it
 	if fBest >= fMinimum:
 		ApplySpread(pShip, pTorpedoes, pBest, fBest)
@@ -531,10 +571,9 @@ def ApplySpread(pShip, pTorpedoes, pTarget, fScore):
 	# Spread torpedoes leave in a fan and only turn to the target after a
 	# while: closer than SpreadMinDistance they would fly past it.
 	global g_iPlayerSpread, g_iSetSpread, g_iSpreadShipID
-	pConfig = GetConfig()
 	iWant = 0
-	if fScore >= float(getattr(pConfig, "SpreadMinSolution", 85)):
-		fMinimum = KilometersToUnits(float(getattr(pConfig, "SpreadMinDistance", 0)))
+	if fScore >= g_fSpreadMinSolution:
+		fMinimum = KilometersToUnits(g_fSpreadMinDistance)
 		if GetDistance(pShip, pTarget) >= fMinimum:
 			iWant = pTorpedoes.GetNumFiringChains() - 1
 	if iWant < 0:
@@ -604,7 +643,7 @@ def BestPulseScore(pShip, pSystem, pTarget):
 	# the weapon points.
 	pSolution = GetSolution()
 	vOffset = GetOffset(pShip, pTarget)
-	iRule = int(getattr(GetConfig(), "PulseRule", 1))
+	iRule = g_iPulseRule
 	fBest = 0.0
 	for iChild in range(pSystem.GetNumChildSubsystems()):
 		pWeapon = App.PulseWeapon_Cast(pSystem.GetChildSubsystem(iChild))
@@ -631,8 +670,8 @@ def PulseTarget(pShip, pSystem, lTargets, eGroup):
 	if pBest == None:
 		return None
 	g_dScore[eGroup] = fBest
-	fMinimum = float(getattr(GetConfig(), "PulseMinSolution", 70))
-	if int(getattr(GetConfig(), "PulseRule", 1)) == 2:
+	fMinimum = g_fPulseMinSolution
+	if g_iPulseRule == 2:
 		fMinimum = 1.0	# firing cone: any weapon inside it
 	if fBest >= fMinimum:
 		return pBest
@@ -665,7 +704,7 @@ def IsFiring(pSystem):
 def IsTapped(pSystem):
 	# Torpedoes and pulse weapons fire faster from quick presses of the
 	# fire key than from holding it (TapFire); phaser beams are held.
-	if not int(getattr(GetConfig(), "TapFire", 1)):
+	if not g_iTapFire:
 		return 0
 	if App.TorpedoSystem_Cast(pSystem) != None:
 		return 1
@@ -705,7 +744,7 @@ def FireGroup(pShip, eGroup, pTarget, bFire):
 			pass
 		g_dFiring[eGroup] = iID
 		SetFiringShip(pShip)
-		if g_dScore.get(eGroup) != None:
+		if g_bDebug and (g_dScore.get(eGroup) != None):
 			g_pCore.Log(NAME, "Group " + str(eGroup) + " fires, solution " + str(int(g_dScore[eGroup])))
 	elif g_dFiring.get(eGroup) != None:
 		pSystem.StopFiring()
@@ -820,6 +859,7 @@ def Start(pCore):
 	g_pCore = pCore
 	import Custom.Spaceframe.Modules.AutoFire.Config
 	reload(Custom.Spaceframe.Modules.AutoFire.Config)
+	LoadConfig()
 	g_dManual = {}
 	g_dFiring = {}
 	for tEntry in GetFireEvents():
@@ -845,7 +885,8 @@ def Start(pCore):
 	except:
 		pCore.Log(NAME, "Solution settings error: " + str(sys.exc_info()[1]))
 	SetEnabled(getattr(GetConfig(), "StartEnabled", 0))
-	Probe()
+	if g_bDebug:
+		Probe()
 
 
 def Stop():
