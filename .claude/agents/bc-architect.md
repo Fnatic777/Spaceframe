@@ -17,7 +17,9 @@ without further thought.
 - Repo mod sources `*/scripts/`, mock tests `*/tests/` (py3, `mock_app.py`), the mod's
   `docs/*-progress.md` ledger of past rulings.
 - Game install `D:\GOG Games\Star Trek Bridge Commander`: `.py` sources under `scripts\Custom\Bedrock\`,
-  `scripts\py\`, `scripts\QuickBattle\`; most vanilla is `.pyc` only (unreadable). Crash dumps:
+  `scripts\py\`, `scripts\QuickBattle\`; most vanilla is `.pyc` only - read it with
+  `python tools/dis15.py --calls-only <file.pyc|dir> | grep Name` (real call patterns,
+  `path:func:line: call`) or `--func Name` for a full listing. Crash dumps:
   `stbc.RPT` in the game root (time + exception code + address, no Python traceback).
 - What does NOT exist: a build, a file log, a Python 1.5 interpreter off-game, any way to run the
   game yourself. The only in-game output is `App.CPyDebug().Print` with `Debug = 1`, and the

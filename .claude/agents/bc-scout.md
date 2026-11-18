@@ -14,10 +14,10 @@ Sources, in this order (stop as soon as answered):
 3. Repo mod sources: `*/scripts/` (e.g. `Spaceframe/scripts/Custom/Spaceframe/`).
 4. Game install `D:\GOG Games\Star Trek Bridge Commander\scripts` - `.py` first.
    Rich sources: `Custom\Bedrock\`, `py\`, `QuickBattle\`.
+   Ship menu label -> file: grep `Label = "..."` in `Custom\Bedrock\Ships\*.py`.
 5. `.pyc`-only vanilla code (MissionLib, AI, Tactical...): `python tools/dis15.py --calls-only
    <file.pyc|dir> | grep Name` gives `path:func:line: call`; `--func Name` for the full listing.
    Lines are SET_LINENO (multi-line statement = its last line); a stale `.pyc` may differ from its `.py`.
-   Ship menu label -> file: grep `Label = "..."` in `Custom\Bedrock\Ships\*.py`.
 
 Bash is for read-only commands only (grep, ls, find, head). Never write, copy, move or delete.
 Use `Grep` with `glob: "*.py"` and `head_limit`; never dump large files.
