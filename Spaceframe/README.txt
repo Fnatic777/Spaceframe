@@ -1,7 +1,7 @@
 Spaceframe v0.6 - lightweight module framework for Bridge Commander
 ====================================================================
 Included modules: MV Shields (Multivectral Shields) v0.7, Ablative Armor v1.6,
-Status HUD v0.12, Auto Fire v0.4
+Status HUD v0.12, Auto Fire v0.4, Secondary Target v0.1
 
   [EN] English ........ section 1
   [ES] Espanol ........ seccion 2
@@ -66,6 +66,9 @@ Def = the default value set in the module's Config.py; or a number:
 - "AblativeArmor": capacity as a percentage of the hull (default:
   DefaultArmor, 50).
 - "AutoFire": Def (the ship can use Auto Fire).
+- "SecondaryTarget": Def, or a number that adds the weapon types: 1 phasers,
+  2 torpedoes, 4 pulse weapons (e.g. 5 = phasers and pulse). Def = the
+  Weapons setting of the module.
 On Orion Delta a ship can also get a technology from its own Bedrock plugin
 (scripts\Custom\Bedrock\Ships\<Ship>.py, above "###Do Not Change Below###"),
 e.g. "MVShields = 80" (-1 there = default value); Ships wins over it.
@@ -174,6 +177,58 @@ Settings: scripts\Custom\Spaceframe\Modules\AutoFire\Config.py (each setting
 is described there; distances in km as shown in game). They are read once
 when a battle starts: edits apply from the next battle (Quick Battle), not
 mid-battle.
+
+Secondary Target module
+-----------------------
+With several enemies, many weapons sit idle because they cannot reach the
+target you selected. This module makes those weapons shoot at other enemies
+they can reach, while your main target keeps every weapon that reaches it.
+Only for the player's ship, and only if it has "SecondaryTarget" in Ships.py.
+- It works while a weapon group is firing at your main target, whether you
+  hold the fire key yourself or Auto Fire is on. Release the key and it
+  stops with it: it never fires on its own and fires only at the mission's
+  enemies (never at friendly or neutral ships).
+- Each cycle it looks at the nearest enemies (MaxCandidates) that are within
+  SecondaryRange percent of the phaser's full-damage range, and adds them
+  after your main target in the weapon group's target list. The game then
+  sends each weapon to a target it can reach, and the main target, being
+  first, keeps the weapons that reach it. Pulse weapons: all of them count
+  as free, the game decides which ones reach the main target.
+- The weapon group's "one shot at a time" restriction (single fire) is lifted
+  only while that group has a secondary target to shoot at; with none, your
+  manual fire behaves as usual. The original value is put back when no
+  secondary is left, the group stops firing, your main target is gone or not
+  an enemy, you change
+  ship or the technology is lost.
+- Weapons (Ships.py number or Config): 1 phasers, 2 torpedoes, 4 pulse
+  weapons. Torpedoes are not active yet (phase 2): the bit is accepted but
+  does nothing for now.
+- PhaserPerTarget (0, experimental): while single fire is lifted, each target (your main
+  target included) is fired on by at most one phaser bank at a time. The
+  banks that reach the main target all stay available to it but take turns;
+  free banks do the same for their secondary targets. The game's single fire
+  applied per target instead of per ship. Pulse weapons are not affected.
+  0 = no limit (default). 1 is experimental: held banks are stopped with
+  StopFiring, the game restarts them about 0.25 s later, so beams may flicker.
+  The holds are renewed by a second, faster timer (LimitInterval) that runs
+  only while a phaser group is lifted.
+- LimitInterval (0.05 s, minimum 0.02): seconds between those fast checks.
+  Lower = less flicker; the game cannot go below one frame and very low
+  values may cost frames per second (try 0.03 or 0.02).
+- HoldMode (0, experimental): 0 = a held bank gets StopFiring only. 1 = StopFiring
+  and then SetFiring(0): OBSOLETE, it does the same as 0.
+  2 = experimental: StopFiring, then the bank's MinFiringCharge is raised above
+  its maximum charge, so the game cannot refire it (no flicker; the bank keeps
+  recharging). The original value is written back when the bank is released
+  (kept bank, target gone, ship change, etc.); it does not use the fast timer.
+  If the battle ends while a bank is held it is not restored (the ships are
+  destroyed): restart the battle.
+- HoldHysteresis (1.0 s) and HoldSafety (1): HoldMode 2 only. Minimum time
+  between changes of a bank; and cleanup of records of ships that no longer exist.
+Settings: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
+- Weapons (7), Interval (0.2 s), MaxCandidates (4), SecondaryRange (100),
+  SecondaryTorpedoMinSolution (70, for phase 2), PhaserPerTarget (0), LimitInterval (0.05),
+  HoldMode (0), HoldHysteresis (1.0), HoldSafety (1), Debug (0). Read once when a battle starts.
 
 Which ship name to use
 ----------------------
@@ -284,6 +339,9 @@ numero:
 - "AblativeArmor": capacidad como porcentaje del casco (por defecto:
   DefaultArmor, 50).
 - "AutoFire": Def (la nave puede usar el Auto Fire).
+- "SecondaryTarget": Def, o un numero que suma los tipos de arma: 1 phasers,
+  2 torpedos, 4 armas de pulso (p. ej. 5 = phasers y pulso). Def = la opcion
+  Weapons del modulo.
 En Orion Delta una nave tambien puede recibir una tecnologia desde su propio
 plugin Bedrock (scripts\Custom\Bedrock\Ships\<Nave>.py, encima de
 "###Do Not Change Below###"), p. ej. "MVShields = 80" (-1 alli = valor por
@@ -399,6 +457,61 @@ opcion esta descrita alli; distancias en km como se ven en el juego). Se
 leen una vez al empezar la batalla: los cambios valen desde la proxima
 batalla (Quick Battle), no durante la actual.
 
+Modulo Secondary Target
+-----------------------
+Con varios enemigos, muchas armas quedan paradas porque no alcanzan el
+objetivo que usted selecciono. Este modulo hace que esas armas disparen a
+otros enemigos que si alcanzan, mientras su objetivo principal conserva todas
+las armas que lo alcanzan. Solo para la nave del jugador, y solo si tiene
+"SecondaryTarget" en Ships.py.
+- Funciona mientras un grupo de armas dispara al objetivo principal, ya sea
+  porque usted mantiene la tecla de disparo o porque el Auto Fire esta
+  encendido. Si suelta la tecla, el modulo para con ella: nunca dispara por
+  su cuenta y solo dispara a los enemigos de la mision (nunca a naves
+  aliadas o neutrales).
+- En cada ciclo mira los enemigos mas cercanos (MaxCandidates) que esten
+  dentro de SecondaryRange por ciento del alcance de dano maximo del phaser,
+  y los agrega despues de su objetivo principal en la lista de objetivos del
+  grupo. El juego envia cada arma a un objetivo que alcanza, y el principal,
+  por ir primero, conserva las armas que lo alcanzan. Armas de pulso: todas
+  cuentan como libres, el juego decide cuales alcanzan el principal.
+- La restriccion de "un disparo a la vez" del grupo de armas (single fire) se quita
+  solo mientras ese grupo tiene un objetivo secundario al que disparar; sin
+  ninguno, su disparo manual funciona como siempre. El valor original se
+  devuelve cuando no queda secundario, el grupo deja de disparar, el
+  objetivo principal desaparece o no es enemigo, cambia
+  de nave o al perder la tecnologia.
+- Weapons (numero de Ships.py o Config): 1 phasers, 2 torpedos, 4 armas de
+  pulso. Los torpedos todavia no estan activos (fase 2): el bit se acepta
+  pero por ahora no hace nada.
+- PhaserPerTarget (0, experimental): mientras el single fire esta quitado, cada objetivo (el
+  principal incluido) recibe fuego de como maximo un banco de phasers a la
+  vez. Los bancos que alcanzan el objetivo principal quedan todos disponibles
+  para el, pero disparan por turnos; los bancos libres hacen lo mismo con sus
+  objetivos secundarios. Es el single fire del juego aplicado por objetivo y
+  no por nave. Las armas de pulso no se ven afectadas. 0 = sin limite (por
+  defecto). 1 es experimental: los bancos retenidos se paran con StopFiring y
+  el juego los reinicia unos 0,25 s despues, asi que los rayos pueden parpadear.
+  Las retenciones se renuevan con un segundo temporizador mas rapido
+  (LimitInterval) que solo corre mientras un grupo de phasers esta liberado.
+- LimitInterval (0,05 s, minimo 0,02): segundos entre esas revisiones rapidas.
+  Menos = menos parpadeo; el juego no puede bajar de un fotograma y valores
+  muy bajos pueden costar fps (prueba 0,03 o 0,02).
+- HoldMode (0, experimental): 0 = un banco retenido recibe solo StopFiring.
+  1 = StopFiring y despues SetFiring(0): OBSOLETO, hace lo mismo que 0.
+  2 = experimental: StopFiring y despues se sube el MinFiringCharge del banco
+  por encima de su carga maxima, asi el juego no puede volver a dispararlo
+  (sin parpadeo; el banco sigue cargando). El valor original se restaura al
+  liberar el banco (banco principal, objetivo perdido, cambio de nave, etc.);
+  no usa el temporizador rapido. Si la batalla termina con un banco retenido,
+  no se restaura (las naves se destruyen): reinicia la batalla.
+- HoldHysteresis (1,0 s) y HoldSafety (1): solo para HoldMode 2. Tiempo minimo
+  entre cambios de un banco; y limpieza de registros de naves que ya no existen.
+Configuracion: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
+- Weapons (7), Interval (0,2 s), MaxCandidates (4), SecondaryRange (100),
+  SecondaryTorpedoMinSolution (70, para la fase 2), PhaserPerTarget (0), LimitInterval (0,05),
+  HoldMode (0), HoldHysteresis (1,0), HoldSafety (1), Debug (0). Se leen una vez al empezar la batalla.
+
 Que nombre de nave usar
 -----------------------
 Use el NOMBRE DEL ARCHIVO de la nave, sin la extension, con mayusculas y
@@ -506,6 +619,9 @@ Def = o valor padrao definido no Config.py do modulo; ou um numero:
 - "AblativeArmor": capacidade como porcentagem do casco (padrao:
   DefaultArmor, 50).
 - "AutoFire": Def (a nave pode usar o Auto Fire).
+- "SecondaryTarget": Def, ou um numero que soma os tipos de arma: 1 phasers,
+  2 torpedos, 4 armas de pulso (ex. 5 = phasers e pulso). Def = a opcao
+  Weapons do modulo.
 No Orion Delta uma nave tambem pode receber uma tecnologia pelo proprio
 plugin Bedrock (scripts\Custom\Bedrock\Ships\<Nave>.py, acima de
 "###Do Not Change Below###"), ex. "MVShields = 80" (-1 ali = valor padrao).
@@ -617,6 +733,60 @@ Configuracao: scripts\Custom\Spaceframe\Modules\AutoFire\Config.py (cada
 opcao esta descrita la; distancias em km como aparecem no jogo). Sao lidas
 uma vez ao comecar a batalha: as mudancas valem a partir da proxima batalha
 (Quick Battle), nao durante a atual.
+
+Modulo Secondary Target
+-----------------------
+Com varios inimigos, muitas armas ficam paradas porque nao alcancam o alvo
+que voce selecionou. Este modulo faz essas armas atirarem em outros inimigos
+que elas alcancam, enquanto o seu alvo principal continua com todas as armas
+que o alcancam. So para a nave do jogador, e so se ela tiver
+"SecondaryTarget" no Ships.py.
+- Funciona enquanto um grupo de armas atira no alvo principal, seja porque
+  voce segura a tecla de disparo, seja porque o Auto Fire esta ligado. Soltou
+  a tecla, o modulo para junto: nunca dispara sozinho e so atira nos inimigos
+  da missao (nunca em naves aliadas ou neutras).
+- A cada ciclo olha os inimigos mais proximos (MaxCandidates) que estejam
+  dentro de SecondaryRange por cento do alcance de dano maximo do phaser, e
+  os coloca depois do alvo principal na lista de alvos do grupo. O jogo manda
+  cada arma para um alvo que ela alcanca, e o principal, por ser o primeiro,
+  fica com as armas que o alcancam. Armas de pulso: todas contam como livres,
+  o jogo decide quais alcancam o principal.
+- A restricao de "um tiro de cada vez" do grupo de armas (single fire) e retirada
+  somente enquanto esse grupo tem um alvo secundario para atirar; sem
+  nenhum, o seu tiro manual funciona como sempre. O valor original volta
+  quando nao sobra secundario, o grupo para de atirar, o alvo principal some
+  ou nao e inimigo, voce troca de nave
+  ou ao perder a tecnologia.
+- Weapons (numero do Ships.py ou Config): 1 phasers, 2 torpedos, 4 armas de
+  pulso. Os torpedos ainda nao estao ativos (fase 2): o bit e aceito mas por
+  enquanto nao faz nada.
+- PhaserPerTarget (0, experimental): enquanto o single fire esta retirado, cada alvo (o
+  principal incluido) recebe fogo de no maximo um banco de phasers por vez.
+  Os bancos que alcancam o alvo principal ficam todos disponiveis para ele,
+  mas atiram em revezamento; os bancos livres fazem o mesmo com seus alvos
+  secundarios. E o single fire do jogo aplicado por alvo e nao por nave. As
+  armas de pulso nao sao afetadas. 0 = sem limite (padrao).
+  1 e experimental: os bancos retidos sao parados com StopFiring e o jogo os
+  reinicia cerca de 0,25 s depois, entao os raios podem piscar.
+  As retencoes sao renovadas por um segundo temporizador mais rapido
+  (LimitInterval) que so roda enquanto um grupo de phasers esta liberado.
+- LimitInterval (0,05 s, minimo 0,02): segundos entre essas verificacoes rapidas.
+  Menos = menos piscar; o jogo nao pode descer de um quadro e valores muito
+  baixos podem custar fps (tente 0,03 ou 0,02).
+- HoldMode (0, experimental): 0 = um banco retido recebe so StopFiring.
+  1 = StopFiring e depois SetFiring(0): OBSOLETO, faz o mesmo que 0.
+  2 = experimental: StopFiring e depois o MinFiringCharge do banco e elevado
+  acima da sua carga maxima, entao o jogo nao consegue dispara-lo de novo
+  (sem piscar; o banco continua carregando). O valor original e restaurado ao
+  liberar o banco (banco mantido, alvo perdido, troca de nave, etc.); nao usa
+  o temporizador rapido. Se a batalha terminar com um banco retido, nao e
+  restaurado (as naves sao destruidas): reinicie a batalha.
+- HoldHysteresis (1,0 s) e HoldSafety (1): so para HoldMode 2. Tempo minimo
+  entre mudancas de um banco; e limpeza de registros de naves que nao existem mais.
+Configuracao: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
+- Weapons (7), Interval (0,2 s), MaxCandidates (4), SecondaryRange (100),
+  SecondaryTorpedoMinSolution (70, para a fase 2), PhaserPerTarget (0), LimitInterval (0,05),
+  HoldMode (0), HoldHysteresis (1,0), HoldSafety (1), Debug (0). Sao lidas uma vez ao comecar a batalha.
 
 Qual nome de nave usar
 ----------------------
