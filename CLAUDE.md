@@ -29,6 +29,8 @@ Files: CRLF, ASCII only, tab indentation.
   `edited` is real (game copy matches neither the last install nor HEAD): never `--force`
   without diffing the game copy first and telling the user.
 - `python tools/build_api_index.py` - regenerate `docs/api/App-index.txt`.
+- `python tools/dis15.py <file.pyc|dir> [--func Name] [--calls-only]` - disassemble game `.pyc`
+  (Python 1.5); `--calls-only` prints `path:func:line: call` to grep real vanilla call patterns.
 
 ## Workflow (main agent = coordinator, keep your context small)
 1. Lookups: one-liners (a name in `App-index.txt`, a fact in `learned.md`, a line in the repo)

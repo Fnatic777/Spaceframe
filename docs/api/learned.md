@@ -15,6 +15,9 @@ guesses as `(unconfirmed)`. Names only are in `App-index.txt` (grep it).
   ("NX Refit BC" = `ENTNXRefit`; "Peregrine FT" menu = `Fighter`, carrier-launched = `Peregrine`).
   Race = `Race`, family = `SubMenu` (`"N/A"` = none) in that plugin.
 - Hardpoints (`scripts\ships\Hardpoints`) are `.pyc` only here.
+- `.pyc`-only code: `python tools/dis15.py --calls-only <file.pyc|dir>` -> `path:func:line: call`
+  (decodes all 2885 game .pyc). 1.5 SET_LINENO = LAST line of a multi-line simple statement;
+  many vanilla `.pyc` (Bridge\Characters, Systems\Multi*) are older than the `.py` beside them.
 
 ## Lifecycle, events, SWIG proxies
 - Scripts load once per game launch: `.py` code changes need a restart.
