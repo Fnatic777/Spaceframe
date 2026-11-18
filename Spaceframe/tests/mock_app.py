@@ -342,6 +342,11 @@ class Point:
 		self.y = y
 		self.z = z
 
+	def SetXYZ(self, x, y, z):
+		self.x = x
+		self.y = y
+		self.z = z
+
 	def Subtract(self, o):
 		self.x = self.x - o.x
 		self.y = self.y - o.y

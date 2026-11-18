@@ -36,7 +36,7 @@ guesses as `(unconfirmed)`. Names only are in `App-index.txt` (grep it).
   while a clicked menu has focus. The game binds lower-case codes (`l` = 108).
 - Menu clicks pass through the fire input; the game calls StopFiring on release. Cause (confirmed in game): the left mouse button is bound to the primary fire input in the game's controls; unbinding it removes the phaser stutter when clicking UI buttons with Auto Fire on.
 - `App.CPyDebug().Print` (Test Mode console) is the only log; writing files from
-  game scripts does not work. Crash dumps: `stbc.RPT` in the game root (address only).
+  game scripts does not work (confirmed in game: open() raises IOError "Securelevel prevents file IO"). Show results on screen (MissionLib.TextBanner). Crash dumps: `stbc.RPT` in the game root (address only).
 
 ## UI
 - Panels redraw only when their own content changes: call `pDisplay.Layout()` after a
@@ -49,11 +49,15 @@ guesses as `(unconfirmed)`. Names only are in `App-index.txt` (grep it).
 - Shields (bc_dauntless): facing >= 60% absorbs, only excess passes; 10%..60% leaks
   `0.6 * (1 - 2 * (f - 0.1))`; <= 10% everything passes, facing not drained.
 - `PhaserBank.CanHit(point)` takes a world point (`pTarget.GetWorldLocation()`), not a ship.
-- `PulseWeapon.CanHitTarget(pTarget)`; charge `GetChargeLevel() >= GetMinFiringCharge()`.
+- `PulseWeapon.CanHitTarget(point, vector)`: (loc, vZero) accepted in game (returned 0 for a target the weapons were firing at - meaning of the 2nd arg unclear); `(ship)` and `(ship, vZero)` raise TypeError (AutoFire.PulseReady uses 1 arg: its arc check never runs). Charge `GetChargeLevel() >= GetMinFiringCharge()`.
 - Tube direction: `Weapon.CalculateRoughDirection()` (world axes).
   Prediction: `PhysicsObjectClass.GetPredictedPosition(pos, vel, accel, t)` (as AI PredictTargetLocation).
 - `TorpedoTube.IsInArc` signature (unconfirmed) - avoided.
 - Torpedo spread fan / guidance delay are engine-side (hardpoint skew vectors).
+- Single-fire phaser systems (hardpoint SetSingleFire(1)): with 2 targets in the system list only one is fired at (onA:1 onB:1 simul:0 on the probe). `pSystem.GetProperty().SetSingleFire(0)` at runtime lifts it: both targets fire at once (onA:2 onB:6, confirmed in game, STProbe SINGLEFIRE); the system's IsSingleFire follows the property; restoring SetSingleFire(1) works. SetGroupFireMode(1 or 2) did NOT lift it. The property is NOT shared between ships of the same class (confirmed in game, STProbe SHARED: player's lifted 1 -> 0, another ENTYorktown stayed 1); still restore it on the live ship.
+- Torpedo retarget after launch (confirmed in game, STProbe TORP_RETARGET): on ET_TORPEDO_ENTERED_SET, `pT = App.Torpedo_Cast(pEvent.GetDestination())`; `pT.SetTarget(idB)` + `pT.SetTargetOffset(vZero)` makes a torpedo launched at A fly to B; `GetParentID() == ship id` identifies our torpedoes.
+- Manual fire release (confirmed in game, STProbe MANUAL): the game's key release calls StopFiring() and empties the system's whole target list; pressing keeps extra targets already in the list; `StartFiring(B)` alone re-adds. Target-list order (probe ORDER, 3 samples incl. ORDER_PROP0 with single-fire lifted, confirmed in game): weapons that reach several listed targets fire at the first listed; weapons that reach only one fire at that one, all at the same time.
+- `Weapon.SetFiring(0)` on a phaser bank that is firing leaves its beam frozen in space as a static line at the ships' positions (confirmed in game, SecondaryTarget PhaserPerTarget with several targets; gone with the feature off). Cause (read from the exe, docs/api/exe-weapons.md): SetFiring only writes the firing flag; only StopFiring ends a beam (and only when the flag is 1). Do not use SetFiring(0) on a firing bank. StopFiring does not hold a bank either: the engine retries a stopped bank every ~0.33 s (confirmed in game as flicker).
 - Km to game units: `UtopiaModule.ConvertKilometersToGameUnits`.
 - Enemy check: mission's enemy group `IsNameInGroup(name)`.
 - Hull repair complexity usually 1.0 (Constitution 3.0; NX, Fighter 2.0); some ships
