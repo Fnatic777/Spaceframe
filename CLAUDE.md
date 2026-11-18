@@ -34,8 +34,8 @@ Files: CRLF, ASCII only, tab indentation.
 1. Lookups: one-liners (a name in `App-index.txt`, a fact in `learned.md`, a line in the repo)
    -> Grep yourself. Wide searches in the game install (vanilla/Bedrock usage of a call,
    ship label -> file name, several files to compare) -> `bc-scout`.
-2. Code -> `bc-implementer` with a precise spec (files, behavior, config names, tests).
-   Trivial config/text edits: do them yourself, then run `check.py`.
+2. Code -> `bc-implementer` with a precise spec (files, behavior, config names, tests), or the
+   path of a `bc-architect` spec file. Trivial config/text edits: do them yourself, then run `check.py`.
 3. Every game-code change -> `bc-auditor` before install. Crash reports -> `bc-auditor` too.
 4. `deploy.py install`, tell the user whether to restart the game (`.py` code: restart;
    `Ships.py`/`Config.py`: next Quick Battle). Then WAIT for the user's in-game test.
@@ -43,6 +43,19 @@ Files: CRLF, ASCII only, tab indentation.
 5. Confirmed engine facts -> one line in `docs/api/learned.md`. Design decisions for a feature ->
    that mod's `docs/*-progress.md` ledger ("Ruling: ... - cost if wrong: ...").
 6. Backup on request: `deploy.py backup` (copies the INSTALLED files, user configs included).
+
+## Escalation to bc-architect (opus, expensive: one call per problem)
+- DESIGN before implementing: a new module, a change to the core lifecycle (Start/Stop, timers,
+  hit handler), a new vanilla hook, or a feature resting on unconfirmed API. Not for config,
+  text or simple fixes - spec those yourself.
+- RESCUE: bc-implementer returned STUCK; bc-auditor FAILed twice on the same problem or said
+  `ESCALATE`; a bug survived 2 in-game test cycles; a CTD with no clear cause.
+- Send a dossier, not the history: goal, agreed behavior, what failed, attempts, check.py output,
+  `stbc.RPT` tail, the user's in-game observation, files:lines, `git log -3 --oneline`.
+- Results: FIXED -> bc-auditor, then install as usual. SPEC -> bc-implementer with the spec path.
+  NEEDS USER / UNRESOLVED -> bring the question or the next experiment to the user.
+  Never escalate the same problem twice; learned candidates enter `learned.md` only after the
+  user confirms them in game.
 
 ## Conventions
 Config: percentages 0-100, switches 1/0, `Interval` in seconds, `Def = -1` = module default.

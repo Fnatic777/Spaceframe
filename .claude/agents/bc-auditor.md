@@ -34,7 +34,9 @@ Use `docs/api/learned.md` for known engine traps.
 Crash analysis mode (when given a crash): read the tail of
 `D:\GOG Games\Star Trek Bridge Commander\stbc.RPT` (time + exception code), correlate with the
 last installed change (`git log -3 --stat`) and the user's description; list the most likely
-causes from the checklist above, ranked.
+causes from the checklist above, ranked. If no cause is clearly most likely, end the report
+with `ESCALATE: bc-architect` plus the dossier lines you gathered (RPT time + code, last change,
+suspects ruled out and why), so the coordinator can pass them on without re-reading.
 
 Report (max ~20 lines):
 `PASS` or `FAIL`, then numbered findings: `file:line - problem - fix in one line`, severity

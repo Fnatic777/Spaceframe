@@ -34,7 +34,21 @@ Editing: change files with Edit (small changes) or Write (new/rewritten files). 
 files through shell heredocs or inline python/sed scripts - quoting breaks and edits get lost.
 Bash is for running check.py, tests, grep and git diff only.
 
+If a spec file was given (`<Mod>/docs/*-spec.md`), it is the contract: follow it, and report any
+deviation under FOUND instead of silently changing the design.
+
 Before returning, run `python tools/check.py` and fix until green.
+
+Stop and return STUCK instead of the normal report when: check.py is still red after 2 real
+fix attempts on the same failure, the spec contradicts the code or itself, or the task needs an
+API behavior you cannot confirm and no safe fallback exists. Leave the tree as it is (do not revert).
+STUCK format (max 15 lines):
+STUCK: <one-line problem>
+GOAL: <what the task needed>
+TRIED: <attempt - result>, one per line
+EVIDENCE: <failing test/lint lines, file:line>
+HYPOTHESES: <what you suspect, most likely first>
+STATE: <files changed so far, check.py summary>
 
 Report in English, plain text, at most 15 lines, no tables, no code, exactly these headings:
 CHECK: <the two summary lines of check.py>
