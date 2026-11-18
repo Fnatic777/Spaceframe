@@ -34,7 +34,7 @@ guesses as `(unconfirmed)`. Names only are in `App-index.txt` (grep it).
 - Raw keys: `ET_KEYBOARD` handler on TopWindow (like `BridgeUtils.ModalKeyboardHandler`);
   `SetHandled()` only for your key, `CallNextHandler` otherwise. KeyboardBinding loses keys
   while a clicked menu has focus. The game binds lower-case codes (`l` = 108).
-- Menu clicks pass through the fire input; the game calls StopFiring on release.
+- Menu clicks pass through the fire input; the game calls StopFiring on release. Cause (confirmed in game): the left mouse button is bound to the primary fire input in the game's controls; unbinding it removes the phaser stutter when clicking UI buttons with Auto Fire on.
 - `App.CPyDebug().Print` (Test Mode console) is the only log; writing files from
   game scripts does not work. Crash dumps: `stbc.RPT` in the game root (address only).
 
