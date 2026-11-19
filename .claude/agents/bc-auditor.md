@@ -31,6 +31,18 @@ Step 2 - review the diff for what lint cannot see:
 7. Vanilla patches: only inside marked blocks, with `.mvbak` noted in `patches/`.
 Use `docs/api/learned.md` for known engine traps.
 
+Binary patch mode (when the change is a patch/hook for `stbc.exe` or a proxy DLL, not Python):
+- The original exe is never overwritten: a backup copy with its SHA-256 must exist and the patcher
+  must refuse any file whose hash is not the expected build.
+- Every patched site lists: file offset + RVA, original bytes, new bytes, and the check that the
+  original bytes match before writing. A revert command restores exactly the original bytes.
+- Re-disassemble the patched bytes with capstone: no overwritten instruction is split, no jump
+  lands mid-instruction, caller-saved registers/flags the surrounding code relies on are
+  preserved, stack is balanced, a code cave lies in an executable section and fits.
+- Python side keeps working with the patch absent (feature degrades to the old behavior).
+- Patched exe is for the user's own install only; never copied into the repo or a release.
+- Report adds `PATCH:` lines per site (OK / FAIL + reason). Never run the patched game yourself.
+
 Crash analysis mode (when given a crash): read the tail of
 `D:\GOG Games\Star Trek Bridge Commander\stbc.RPT` (time + exception code), correlate with the
 last installed change (`git log -3 --stat`) and the user's description; list the most likely

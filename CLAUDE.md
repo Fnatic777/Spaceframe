@@ -31,11 +31,16 @@ Files: CRLF, ASCII only, tab indentation.
 - `python tools/build_api_index.py` - regenerate `docs/api/App-index.txt`.
 - `python tools/dis15.py <file.pyc|dir> [--func Name] [--calls-only]` - disassemble game `.pyc`
   (Python 1.5); `--calls-only` prints `path:func:line: call` to grep real vanilla call patterns.
+- `python tools/exe_probe.py <wrap|dis|xref|vt|vtof|str|names|field> ...` - read-only static probe of
+  `stbc.exe` (capstone+pefile, SWIG wrappers name the functions). Facts: `docs/api/exe-weapons.md`.
+  Exe work goes to `bc-reverser`. The exe is never overwritten without a hash-checked backup and
+  the user's explicit OK; patches are for the user's install only, not committed binaries.
 
 ## Workflow (main agent = coordinator, keep your context small)
 1. Lookups: one-liners (a name in `App-index.txt`, a fact in `learned.md`, a line in the repo)
    -> Grep yourself. Wide searches in the game install (vanilla/Bedrock usage of a call,
-   ship label -> file name, several files to compare) -> `bc-scout`.
+   ship label -> file name, several files to compare) -> `bc-scout`. Questions about what the
+   engine itself does (stbc.exe functions, struct fields, patch feasibility) -> `bc-reverser`.
 2. Code -> `bc-implementer` with a precise spec (files, behavior, config names, tests), or the
    path of a `bc-architect` spec file. Trivial config/text edits: do them yourself, then run `check.py`.
 3. Every game-code change -> `bc-auditor` before install. Crash reports -> `bc-auditor` too.
