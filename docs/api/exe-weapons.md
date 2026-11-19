@@ -75,3 +75,8 @@ WeaponSystem vtable 0x8938c4, PhaserSystem 0x893240: #25 Update(dt) 0x5847d0 (sh
 
 ## Per-bank TurnOff as a hold (checked 2026-11-19, bc-scout)
 - PoweredSubsystem TurnOn/TurnOff wrappers 0x60e9d0/0x60ea40 vcall +0x7c/+0x80; PhaserBank slots resolve to Fire/stub (UNSURE). CanFire 0x571e60 / TryFire 0x584e40 ignore power flags; only WeaponSystem::Update 0x5847d0 gates on byte +0x9c (system-wide, off -> StopFiring of the whole list). Verdict: per-bank TurnOff is NOT usable as a hold (INFERRED).
+
+## Patch: one bank per target (applied 2026-11-19, confirmed in game)
+- Site: VA 0x584f24 (file offset 0x184f24), 6 bytes `85c074308b16` -> `jmp 0x8879f2; nop`. Cave: VA 0x8879f2 (offset 0x4879f2), 70 bytes in the zeroed slack at the end of .text (executable, last mapped page). Cave asm and bytes live in `tools/exe_patch.py` (keystone asserts them on every run).
+- Logic: on entry `eax` = validated candidate; if non-zero, loop banks of the system ([sys+0x1c] count, 0x56c570 getter, thiscall ecx=sys): if another bank has +0x88 == 1 and +0x8c == target ID, reject the candidate (jmp 0x584f58); else continue at 0x584f2a. The system pointer is read from [esp+8] (saved caller esi; TryFire has one caller, 0x584b19).
+- Not covered: the sticky path (0x584ee2): a bank that still holds its previous target keeps it even if another bank fires there. Not seen in game yet; second hook near 0x584eed if it shows.
