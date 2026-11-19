@@ -7,6 +7,15 @@
 #	from the next battle.
 ###############################################################################
 
+# Key that switches Secondary Target on and off (one letter). The "Secondary
+# Target" button in the tactical officer's menu does the same. While it is
+# ON, the one-target ("single fire") restriction of the weapons is switched
+# off; switching it OFF puts the original setting back.
+ToggleKey = "J"
+
+# 1 = Secondary Target starts switched on at the beginning of each battle.
+StartEnabled = 1
+
 # Weapon types used when Ships.py says Def for this ship. Add the numbers:
 # 1 = phasers, 2 = torpedoes, 4 = pulse weapons (7 = all of them).
 # A number written in Ships.py for a ship works the same way; 0 = off.

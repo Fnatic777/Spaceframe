@@ -1,7 +1,7 @@
 Spaceframe v0.6 - lightweight module framework for Bridge Commander
 ====================================================================
 Included modules: MV Shields (Multivectral Shields) v0.7, Ablative Armor v1.6,
-Status HUD v0.12, Auto Fire v0.4, Secondary Target v0.1
+Status HUD v0.12, Auto Fire v0.4, Secondary Target v0.2
 
   [EN] English ........ section 1
   [ES] Espanol ........ seccion 2
@@ -194,12 +194,18 @@ Only for the player's ship, and only if it has "SecondaryTarget" in Ships.py.
   sends each weapon to a target it can reach, and the main target, being
   first, keeps the weapons that reach it. Pulse weapons: all of them count
   as free, the game decides which ones reach the main target.
-- The weapon group's "one shot at a time" restriction (single fire) is lifted
-  only while that group has a secondary target to shoot at; with none, your
-  manual fire behaves as usual. The original value is put back when no
-  secondary is left, the group stops firing, your main target is gone or not
-  an enemy, you change
-  ship or the technology is lost.
+- It is switched on and off with a key (ToggleKey, default J) or with the
+  "Secondary Target" button in the tactical officer's menu (like Auto Fire);
+  the button shows the state. StartEnabled = 1 switches it on at the start of
+  each battle. While OFF the module does nothing to your weapons. If J already
+  does something in the game, on a ship with the technology the key now
+  toggles the module: change ToggleKey in the Config.
+- While ON, the "one shot at a time" restriction (single fire) of the ship's
+  phasers is switched off. Pulse weapons keep their own setting (single stays
+  single, multi stays multi) and torpedoes are unchanged. The
+  original value is put back when you switch it OFF, change ship, the ship
+  dies or the technology is lost. Switching OFF also removes the secondary
+  targets.
 - Weapons (Ships.py number or Config): 1 phasers, 2 torpedoes, 4 pulse
   weapons. Torpedoes are not active yet (phase 2): the bit is accepted but
   does nothing for now.
@@ -211,8 +217,9 @@ Only for the player's ship, and only if it has "SecondaryTarget" in Ships.py.
   game, AI included, and works only on the build it checks for. The module
   works without it (several banks may then shoot the same target).
 Settings: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
-- Weapons (7), Interval (0.2 s), MaxCandidates (4), SecondaryRange (100),
-  SecondaryTorpedoMinSolution (70, for phase 2), Debug (0). Read once when a battle starts.
+- ToggleKey (J), StartEnabled (1), Weapons (7), Interval (0.2 s),
+  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoMinSolution (70,
+  for phase 2), Debug (0). Read once when a battle starts.
 
 Which ship name to use
 ----------------------
@@ -459,12 +466,18 @@ las armas que lo alcanzan. Solo para la nave del jugador, y solo si tiene
   grupo. El juego envia cada arma a un objetivo que alcanza, y el principal,
   por ir primero, conserva las armas que lo alcanzan. Armas de pulso: todas
   cuentan como libres, el juego decide cuales alcanzan el principal.
-- La restriccion de "un disparo a la vez" del grupo de armas (single fire) se quita
-  solo mientras ese grupo tiene un objetivo secundario al que disparar; sin
-  ninguno, su disparo manual funciona como siempre. El valor original se
-  devuelve cuando no queda secundario, el grupo deja de disparar, el
-  objetivo principal desaparece o no es enemigo, cambia
-  de nave o al perder la tecnologia.
+- Se enciende y apaga con una tecla (ToggleKey, por defecto J) o con el boton
+  "Secondary Target" del menu del oficial tactico (como el Auto Fire); el
+  boton muestra el estado. StartEnabled = 1 enciende el modulo al empezar cada
+  batalla. Apagado, el modulo no hace nada con las armas. Si J ya hace algo en
+  el juego, en una nave con la tecnologia la tecla pasa a encender/apagar el
+  modulo: cambie ToggleKey en el Config.
+- Mientras esta ENCENDIDO, la restriccion de "un disparo a la vez" (single
+  fire) de los phasers de la nave queda desactivada. Las armas de pulso
+  mantienen su propio ajuste (single sigue single, multi sigue multi) y los
+  torpedos no cambian. El valor original se devuelve al APAGAR, al cambiar de
+  nave, cuando la nave muere o al perder la tecnologia. Al apagar tambien se
+  quitan los objetivos secundarios.
 - Weapons (numero de Ships.py o Config): 1 phasers, 2 torpedos, 4 armas de
   pulso. Los torpedos todavia no estan activos (fase 2): el bit se acepta
   pero por ahora no hace nada.
@@ -477,8 +490,9 @@ las armas que lo alcanzan. Solo para la nave del jugador, y solo si tiene
   la version que comprueba. El modulo funciona sin el (varios bancos pueden
   disparar al mismo objetivo).
 Configuracion: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
-- Weapons (7), Interval (0,2 s), MaxCandidates (4), SecondaryRange (100),
-  SecondaryTorpedoMinSolution (70, para la fase 2), Debug (0). Se leen una vez al empezar la batalla.
+- ToggleKey (J), StartEnabled (1), Weapons (7), Interval (0,2 s),
+  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoMinSolution (70,
+  para la fase 2), Debug (0). Se leen una vez al empezar la batalla.
 
 Que nombre de nave usar
 -----------------------
@@ -719,12 +733,16 @@ que o alcancam. So para a nave do jogador, e so se ela tiver
   cada arma para um alvo que ela alcanca, e o principal, por ser o primeiro,
   fica com as armas que o alcancam. Armas de pulso: todas contam como livres,
   o jogo decide quais alcancam o principal.
-- A restricao de "um tiro de cada vez" do grupo de armas (single fire) e retirada
-  somente enquanto esse grupo tem um alvo secundario para atirar; sem
-  nenhum, o seu tiro manual funciona como sempre. O valor original volta
-  quando nao sobra secundario, o grupo para de atirar, o alvo principal some
-  ou nao e inimigo, voce troca de nave
-  ou ao perder a tecnologia.
+- Liga e desliga com uma tecla (ToggleKey, padrao J) ou com o botao "Secondary
+  Target" no menu do oficial tatico (como o Auto Fire); o botao mostra o
+  estado. StartEnabled = 1 liga o modulo no inicio de cada batalha. Desligado,
+  o modulo nao faz nada nas armas. Se J ja faz algo no jogo, em uma nave com a
+  tecnologia a tecla passa a ligar/desligar o modulo: troque ToggleKey no Config.
+- Enquanto esta LIGADO, a restricao de "um tiro de cada vez" (single fire) dos
+  phasers da nave fica desativada. As armas de pulso mantem o proprio ajuste
+  (single continua single, multi continua multi) e os torpedos nao mudam. O valor original volta ao DESLIGAR, ao trocar de nave, quando a
+  nave morre ou ao perder a tecnologia. Ao desligar, os alvos secundarios
+  tambem sao retirados.
 - Weapons (numero do Ships.py ou Config): 1 phasers, 2 torpedos, 4 armas de
   pulso. Os torpedos ainda nao estao ativos (fase 2): o bit e aceito mas por
   enquanto nao faz nada.
@@ -736,8 +754,9 @@ que o alcancam. So para a nave do jogador, e so se ela tiver
   jogo, inclusive as da IA, e so vale para a build que ele confere. O modulo
   funciona sem ele (varios bancos podem atirar no mesmo alvo).
 Configuracao: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
-- Weapons (7), Interval (0,2 s), MaxCandidates (4), SecondaryRange (100),
-  SecondaryTorpedoMinSolution (70, para a fase 2), Debug (0). Sao lidas uma vez ao comecar a batalha.
+- ToggleKey (J), StartEnabled (1), Weapons (7), Interval (0,2 s),
+  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoMinSolution (70,
+  para a fase 2), Debug (0). Sao lidas uma vez ao comecar a batalha.
 
 Qual nome de nave usar
 ----------------------

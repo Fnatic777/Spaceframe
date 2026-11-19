@@ -20,6 +20,8 @@ def make_config(**kw):
 	c.SecondaryRange = 100
 	c.SecondaryTorpedoMinSolution = 70
 	c.Debug = 0
+	c.ToggleKey = "J"
+	c.StartEnabled = 1
 	for k in kw:
 		setattr(c, k, kw[k])
 	return c
@@ -64,9 +66,16 @@ def test_start_twice_then_stop_registers_once():
 	ST.Start(core)
 	assert len(App.g_kEventManager.handlers) == 3
 	assert active_timers() == 1
+	assert App._top.handlers == [(App.ET_KEYBOARD, ST.KEY_HANDLER)]
+	assert len(App._tcw.menu.children) == 1
+	assert len(App._tcw.menu.handlers) == 1
 	ST.Stop()
 	assert len(App.g_kEventManager.handlers) == 0
 	assert active_timers() == 0
+	assert App._top.handlers == []
+	assert App._tcw.menu.children == []
+	assert App._tcw.menu.handlers == []
+	assert ST.g_iOn == 0 and ST.g_pButton == None and ST.g_iKey == None
 
 
 def test_stop_touches_no_ship():
@@ -95,13 +104,16 @@ def test_mask_def_follows_config_weapons():
 	ST.Stop()
 
 
-def test_no_tech_no_timer():
-	App, ST, core, ship = setup(tech=None)
+def test_start_enabled_zero_no_timer_until_toggled():
+	App, ST, core, ship = setup(StartEnabled=0)
 	ST.Start(core)
 	assert active_timers() == 0
-	assert len(App.g_kEventManager.handlers) == 0
-	core.techs["Galaxy"] = {"SecondaryTarget": 0}
-	ST.Start(core)
+	assert ST.IsEnabled() == 0
+	assert ST.g_dLifted == {}
+	ST.Toggle()
+	assert ST.IsEnabled() == 1
+	assert active_timers() == 1
+	ST.Toggle()
 	assert active_timers() == 0
 	ST.Stop()
 

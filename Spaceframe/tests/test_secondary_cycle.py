@@ -128,6 +128,7 @@ def setup(iTech=-1, **kw):
 	ST.g_pCore = core
 	AF.g_pCore = core
 	ST.LoadConfig()
+	ST.g_iOn = 1	# the module is switched ON (the cycle does nothing otherwise)
 	return App, ST, core, ship
 
 
@@ -173,13 +174,14 @@ def test_group_not_firing_untouched():
 	main, b, c, pSys = scene(core, ship)
 	ST.Cycle()
 	ST.Cycle()
-	assert LOG == []
+	# only the single-fire lift (ON), no target list change
+	assert LOG == [("single", "g0", 0)]
 	assert pSys.lTargets == []
 	# firing, but not at the player's selected target: still untouched
 	pSys.firing = 1
 	pSys.lTargets = [b]
 	ST.Cycle()
-	assert LOG == []
+	assert LOG == [("single", "g0", 0)]
 
 
 def test_key_release_list_cleared_then_readded_once():
@@ -206,11 +208,11 @@ def test_main_dies_group_continues():
 	del LOG[:]
 	main.dead = 1
 	ST.Cycle()
-	# main gone: the secondaries are taken back and single-fire is restored
+	# main gone: the secondaries are taken back; single-fire stays lifted (ON)
 	assert [t[2] for t in calls("stopat")] == [3, 4]
 	assert pSys.ids() == [2]
-	assert pSys.pProp.iSingle == 1
-	assert ST.g_dLifted == {}
+	assert pSys.pProp.iSingle == 0
+	assert ST.g_dLifted == {1: {0: 1}}
 	assert ST.g_dAdded == {}
 	# the player picks B: nothing is re-added by a stale record
 	del LOG[:]
@@ -312,8 +314,10 @@ def test_preconditions_restore_and_do_nothing():
 	pSys.Release()
 	pSys.Press(main)
 	ST.Cycle()
-	assert pSys.pProp.iSingle == 1
+	# below red alert: secondaries removed, single-fire still lifted (ON)
+	assert pSys.pProp.iSingle == 0
 	assert pSys.ids() == [2]
+	assert ST.g_dAdded == {}
 	# an ally selected as main target: nothing
 	ship.alert = 2
 	friend = enemy("Friend", 9, 5.0)
@@ -324,7 +328,8 @@ def test_preconditions_restore_and_do_nothing():
 	assert LOG == []
 
 
-def test_no_wanted_target_never_touches_single_fire():
+def test_no_wanted_target_still_lifted_once_no_secondary():
+	# Lifted for as long as the module is ON, whether or not a secondary is wanted.
 	App, ST, core, ship = setup()
 	main, b, c, pSys = scene(core, ship)
 	pSys2 = ListGroup([ReachBank([10.0, 20.0, 30.0])], "g0")
@@ -332,12 +337,12 @@ def test_no_wanted_target_never_touches_single_fire():
 	pSys2.Press(main)
 	ST.Cycle()
 	ST.Cycle()
-	assert calls("single") == []
+	assert calls("single") == [("single", "g0", 0)]
 	assert calls("start") == []
-	assert ST.g_dLifted == {}
+	assert ST.g_dLifted == {1: {0: 1}}
 
 
-def test_wanted_appears_then_disappears_lifted_once_restored_once():
+def test_wanted_appears_then_disappears_lifted_once_never_restored_by_cycle():
 	App, ST, core, ship = setup()
 	main, b, c, pSys = scene(core, ship)
 	pSys.Press(main)
@@ -349,13 +354,13 @@ def test_wanted_appears_then_disappears_lifted_once_restored_once():
 	ST.Cycle()
 	ST.Cycle()
 	ST.Cycle()
-	assert calls("single") == [("single", "g0", 0), ("single", "g0", 1)]
-	assert pSys.pProp.iSingle == 1
+	assert calls("single") == [("single", "g0", 0)]
+	assert pSys.pProp.iSingle == 0
 	assert pSys.ids() == [2]
-	assert ST.g_dLifted == {}
+	assert ST.g_dLifted == {1: {0: 1}}
 
 
-def test_group_stops_firing_restores_single_fire():
+def test_group_stops_firing_single_fire_stays_lifted():
 	App, ST, core, ship = setup()
 	main, b, c, pSys = scene(core, ship)
 	pSys.Press(main)
@@ -364,9 +369,9 @@ def test_group_stops_firing_restores_single_fire():
 	pSys.Release()
 	ST.Cycle()
 	ST.Cycle()
-	assert pSys.pProp.iSingle == 1
-	assert ST.g_dLifted == {}
-	assert calls("single") == [("single", "g0", 0), ("single", "g0", 1)]
+	assert pSys.pProp.iSingle == 0
+	assert ST.g_dLifted == {1: {0: 1}}
+	assert calls("single") == [("single", "g0", 0)]
 
 
 def test_main_not_enemy_releases_secondaries():
@@ -378,7 +383,7 @@ def test_main_not_enemy_releases_secondaries():
 	ship.target = friend
 	ST.Cycle()
 	assert pSys.ids() == [2]
-	assert pSys.pProp.iSingle == 1
+	assert pSys.pProp.iSingle == 0
 	assert ST.g_dAdded == {}
 
 
