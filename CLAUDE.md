@@ -35,6 +35,10 @@ Files: CRLF, ASCII only, tab indentation.
   `stbc.exe` (capstone+pefile, SWIG wrappers name the functions). Facts: `docs/api/exe-weapons.md`.
   Exe work goes to `bc-reverser`. The exe is never overwritten without a hash-checked backup and
   the user's explicit OK; patches are for the user's install only, not committed binaries.
+- `python tools/exe_patch.py status|verify|apply|revert|upgrade|selftest [--exe PATH]` - the engine patch
+  "one bank per target" for phaser systems (hash-checked, backup `stbc.exe.orig-<sha8>`, cave v2;
+  `selftest` runs on temp copies only). It changes `stbc.exe` itself and every ship of the game:
+  `apply`/`revert`/`upgrade` only with the user's explicit OK and the game closed.
 
 ## Workflow (main agent = coordinator, keep your context small)
 1. Lookups: one-liners (a name in `App-index.txt`, a fact in `learned.md`, a line in the repo)
