@@ -29,16 +29,25 @@ Files: CRLF, ASCII only, tab indentation.
   `edited` is real (game copy matches neither the last install nor HEAD): never `--force`
   without diffing the game copy first and telling the user.
 - `python tools/build_api_index.py` - regenerate `docs/api/App-index.txt`.
+- `python tools/dbwin_capture.py [--match TEXT] [--out PATH]` - captures only the engine's own
+  TGTrace/OutputDebugString output into logs/stbc_debug.log. It does NOT capture the Python logs
+  (`App.CPyDebug().Print` is a no-op in stbc.exe).
+- Game log: with `Debug = 1` (Spaceframe/Config.py) and the `fileio` exe patch applied, the game
+  writes `Spaceframe_debug.log` in the game folder. Ask the user to run the test, then read that
+  file with Read/Grep (never ask the user to copy banners).
 - `python tools/dis15.py <file.pyc|dir> [--func Name] [--calls-only]` - disassemble game `.pyc`
   (Python 1.5); `--calls-only` prints `path:func:line: call` to grep real vanilla call patterns.
 - `python tools/exe_probe.py <wrap|dis|xref|vt|vtof|str|names|field> ...` - read-only static probe of
   `stbc.exe` (capstone+pefile, SWIG wrappers name the functions). Facts: `docs/api/exe-weapons.md`.
   Exe work goes to `bc-reverser`. The exe is never overwritten without a hash-checked backup and
   the user's explicit OK; patches are for the user's install only, not committed binaries.
-- `python tools/exe_patch.py status|verify|apply|revert|upgrade|selftest [--exe PATH]` - the engine patch
-  "one bank per target" for phaser systems (hash-checked, backup `stbc.exe.orig-<sha8>`, cave v2;
-  `selftest` runs on temp copies only). It changes `stbc.exe` itself and every ship of the game:
-  `apply`/`revert`/`upgrade` only with the user's explicit OK and the game closed.
+- `python tools/exe_patch.py status|verify|apply|revert|upgrade|selftest [--exe PATH] [--patch NAME]
+  [--all]` - two independent engine patches: `onebank` (default; "one bank per target" for phaser
+  systems, cave v2) and `fileio` (lets scripts use `open`, so the game log works; every script can
+  then write files). `--patch NAME` picks one, `revert --all` undoes both, `status` lists both
+  (hash-checked, backup `stbc.exe.orig-<sha8>`; `selftest` runs on temp copies only). It changes
+  `stbc.exe` itself and every ship of the game: `apply`/`revert`/`upgrade` only with the user's
+  explicit OK and the game closed.
 
 ## Workflow (main agent = coordinator, keep your context small)
 1. Lookups: one-liners (a name in `App-index.txt`, a fact in `learned.md`, a line in the repo)
@@ -70,5 +79,7 @@ Files: CRLF, ASCII only, tab indentation.
 
 ## Conventions
 Config: percentages 0-100, switches 1/0, `Interval` in seconds, `Def = -1` = module default.
-Debug output only via `App.CPyDebug().Print` when `Debug = 1` (user dislikes the console: prefer
-visible in-game checks). Commit only when the user asks.
+Debug output only through the core `Log()` when `Debug = 1` (it writes `Spaceframe_debug.log`;
+`App.CPyDebug().Print` prints nothing). A temporary `Debug = 1` in the game Config.py makes
+`deploy.py` report it `edited`: `pull`, `install`, and restore `Debug = 0` in the repo before
+committing; never commit `Debug = 1`. Commit only when the user asks.

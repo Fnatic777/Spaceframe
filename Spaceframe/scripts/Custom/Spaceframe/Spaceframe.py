@@ -39,6 +39,7 @@
 import App
 import sys
 import string
+import time
 
 VERSION = "0.6"
 MODULES_PATH = "scripts/Custom/Spaceframe/Modules"
@@ -52,6 +53,14 @@ g_pMission = None	# mission the weapon hit handler was registered on
 g_dShipNames = {}	# ship ObjID -> ship file name
 g_dShipTechs = {}	# ship file name -> {technology: value}
 g_fInterval = 0.25	# seconds between timer cycles
+LOG_FILE = "Spaceframe_debug.log"	# in the game folder (Debug = 1 only)
+g_fOpen = open		# the file opener of the logger (tests replace it)
+g_pLogFile = None	# plain Python file object, opened on the first Log call
+g_bLogOpenFailed = 0	# 1 = the file logger is off until the next Start()
+g_bLogBanner = 0	# 1 = the "log file unavailable" banner was shown this session
+g_bStopping = 0		# 1 = Stop() ran since the last Start(): no banner from the logger
+g_iLogLines = 0		# lines written to the log file this session
+LOG_MAX_LINES = 5000	# size cap per session
 
 
 ###############################################################################
@@ -77,9 +86,90 @@ def GetConfigValue(sName, pDefault):
 ###############################################################################
 #	Logging (Test Mode console only, when Debug = 1 in Config.py)
 ###############################################################################
+def LogStamp():
+	# Game time with 2 decimals; the real clock when the game time is unavailable.
+	try:
+		return "%.2f" % App.g_kUtopiaModule.GetGameTime()
+	except:
+		pass
+	try:
+		return "%.2f" % time.time()
+	except:
+		return "0.00"
+
+
+def LogFileState():
+	# "off" (Debug 0), "ok" (file open), "failed" (open/write failed) or "unopened".
+	if not GetConfigValue("Debug", 0):
+		return "off"
+	if g_pLogFile != None:
+		return "ok"
+	if g_bLogOpenFailed:
+		return "failed"
+	return "unopened"
+
+
+def LogToFile(sLine):
+	# Appends one line to the log file (opened on the first call of a session).
+	# Returns 1 when written, 0 when the file logger is unavailable.
+	global g_pLogFile, g_bLogOpenFailed, g_bLogBanner, g_iLogLines
+	if g_bLogOpenFailed:
+		return 0
+	if g_pLogFile == None:
+		pNew = None
+		try:
+			pNew = g_fOpen(LOG_FILE, "a")
+			pNew.write("==== Spaceframe session " + time.ctime(time.time()) + " ====\n")
+			g_pLogFile = pNew
+		except:
+			g_bLogOpenFailed = 1
+			g_pLogFile = None
+			if pNew != None:
+				try:
+					pNew.close()
+				except:
+					pass
+			if (not g_bLogBanner) and (not g_bStopping):
+				g_bLogBanner = 1
+				ShowProblem("Spaceframe log file unavailable (file IO blocked by the game)")
+			return 0
+	try:
+		if g_iLogLines >= LOG_MAX_LINES:
+			if g_iLogLines == LOG_MAX_LINES:
+				g_iLogLines = g_iLogLines + 1
+				g_pLogFile.write("==== log capped at " + str(LOG_MAX_LINES) + " lines ====\n")
+				g_pLogFile.flush()
+			return 0
+		g_iLogLines = g_iLogLines + 1
+		g_pLogFile.write(sLine)
+		g_pLogFile.flush()
+		return 1
+	except:
+		g_bLogOpenFailed = 1
+		CloseLogFile()
+		return 0
+
+
+def CloseLogFile():
+	global g_pLogFile
+	pFile = g_pLogFile
+	g_pLogFile = None
+	if pFile != None:
+		try:
+			pFile.close()
+		except:
+			pass
+
+
 def Log(sModule, sText):
 	if not GetConfigValue("Debug", 0):
 		return
+	try:
+		sLine = "%s %s: %s\n" % (LogStamp(), sModule, sText)
+		if LogToFile(sLine):
+			return
+	except:
+		pass
 	try:
 		App.CPyDebug().Print(sModule + ": " + sText + "\n")
 	except:
@@ -377,7 +467,13 @@ def OnWeaponHit(pObject, pEvent):
 ###############################################################################
 def Start(pMission = None):
 	global g_pRunner, g_pMission, g_dShipNames, g_dShipTechs, g_fInterval
+	global g_bLogOpenFailed, g_bLogBanner, g_bStopping, g_iLogLines
 	Stop()
+	# A new session: the file logger may try (and warn) again.
+	g_bLogOpenFailed = 0
+	g_bLogBanner = 0
+	g_bStopping = 0
+	g_iLogLines = 0
 	g_dShipNames = {}
 	g_dShipTechs = {}
 	try:
@@ -436,7 +532,8 @@ def Start(pMission = None):
 
 
 def Stop():
-	global g_pRunner, g_pMission, g_lModules
+	global g_pRunner, g_pMission, g_lModules, g_bStopping
+	g_bStopping = 1
 	if g_pMission != None:
 		try:
 			App.g_kEventManager.RemoveBroadcastHandler(App.ET_WEAPON_HIT, g_pMission, HIT_HANDLER)
@@ -451,6 +548,7 @@ def Stop():
 		CallModules("Stop", (), 0, 1)
 		g_lModules = []
 		Log("Spaceframe", "Spaceframe stopped.")
+	CloseLogFile()
 
 
 ###############################################################################

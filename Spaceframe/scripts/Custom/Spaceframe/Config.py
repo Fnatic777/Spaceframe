@@ -22,5 +22,7 @@ Interval = 0.25
 # 1 = also runs in multiplayer (may desync), 0 = offline only.
 EnableInMultiplayer = 0
 
-# 1 = show messages in the Test Mode console (~ key).
+# 1 = write the modules' log to Spaceframe_debug.log in the game folder
+# (needs the optional 'fileio' patch of tools/exe_patch.py; without it one
+# banner says the log file is unavailable). The game's own console shows nothing.
 Debug = 0

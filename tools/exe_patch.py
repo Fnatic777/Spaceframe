@@ -1,20 +1,35 @@
-"""exe_patch.py - apply/revert the "one bank per target" patch to stbc.exe (py3 tool, not game code).
+"""exe_patch.py - apply/revert independent named patches to stbc.exe (py3 tool, not game code).
 
 Needs: capstone, pefile, keystone. status/verify never write to the exe.
 
-Usage (repo root):
-  python tools/exe_patch.py status   [--exe PATH]         sha256, known build?, original|patched|patched-v1|partial-cave|modified-unknown
-  python tools/exe_patch.py apply    [--exe PATH] [--yes]  prints the plan, asks to type 'yes' (or --yes);
-                                                           backup <exe>.orig-<sha8> made once, never overwritten
-  python tools/exe_patch.py upgrade  [--exe PATH] [--yes]  patched-v1 -> revert (sha check) -> apply v2
-  python tools/exe_patch.py revert   [--exe PATH]          restores hook + zeroes cave (v1 or v2), checks original sha256
-  python tools/exe_patch.py verify   [--exe PATH]          capstone listing of hook + cave
-  python tools/exe_patch.py selftest                       runs on a COPY of the exe in a temp dir
+Patches (independent, any combination): onebank (default when no name is given), fileio.
 
-Patch = hook at 0x584f24 (6 bytes) jumping to a cave in .text slack at 0x8879f2.
-v2 (current): the cave rejects a candidate target when another bank of the system already targets it,
-  ONLY when the system is a PhaserSystem (IsA 0x801f); other systems behave as the original.
-v1 (LEGACY): same rule for every system. Kept so it can be detected, reverted and upgraded.
+Usage (repo root):
+  python tools/exe_patch.py status   [--exe PATH]         sha256 + state of BOTH patches
+  python tools/exe_patch.py apply    [--exe PATH] [--patch NAME] [--yes]
+                                                          prints the plan, asks to type 'yes' (or --yes);
+                                                          backup <exe>.orig-<sha8> made once (by the first apply
+                                                          of any patch), never overwritten; refused if the exe
+                                                          already carries a patch and no backup exists
+  python tools/exe_patch.py upgrade  [--exe PATH] [--yes]  onebank only: patched-v1 -> revert -> apply v2
+  python tools/exe_patch.py revert   [--exe PATH] [--patch NAME]   restores that patch only, other one untouched
+  python tools/exe_patch.py revert   [--exe PATH] --all    reverts every patch, checks sha256 == original
+  python tools/exe_patch.py verify   [--exe PATH] [--patch NAME]   capstone listing of the patch sites
+  python tools/exe_patch.py selftest                       runs on a COPY of the exe in a temp dir
+NAME in onebank|fileio; no --patch = onebank.
+
+Build check: the bytes of EVERY known site of EVERY patch (all variants) are virtually restored to the
+original and the result is hashed; it must equal the original build sha256 (so patches can be applied
+and reverted independently).
+
+onebank states: original|patched|patched-v1|partial-cave|modified-unknown.
+  Hook at 0x584f24 (6 bytes) jumping to a cave in .text slack at 0x8879f2.
+  v2 (current): the cave rejects a candidate target when another bank of the system already targets it,
+    ONLY when the system is a PhaserSystem (IsA 0x801f); other systems behave as the original.
+  v1 (LEGACY): same rule for every system. Kept so it can be detected, reverted and upgraded.
+fileio states: original|patched|modified-unknown (no variants).
+  Python builtin open (VA 0x7551e0) refuses file IO ('Securelevel prevents file IO.') when 0x74bc10()
+  (= [0x99ee38] > 0) is true. Site VA 0x7551fa: je 0x755268 (74 6c) -> jmp 0x755268 (eb 6c).
 """
 import sys, os, hashlib, shutil, struct, tempfile, io, contextlib
 
@@ -144,7 +159,26 @@ def sites_for(variant):
 	]
 
 
-SITES = sites_for("v2")  # current patch
+SITES = sites_for("v2")  # current onebank patch
+
+# ---- fileio: open() always allowed (je -> jmp, same target) ----
+FILEIO_VA = 0x7551fa
+FILEIO_TARGET = 0x755268
+FILEIO_SITES = [("site", FILEIO_VA, bytes.fromhex("746c"), bytes.fromhex("eb6c"))]
+
+PATCHES = ("onebank", "fileio")
+
+
+def all_known_sites():
+	"""(VA, original bytes) of every site of every patch and variant (original bytes are shared)."""
+	out = []
+	for var in ("v1", "v2"):
+		for name, va, orig, new in sites_for(var):
+			if (va, orig) not in out:
+				out.append((va, orig))
+	for name, va, orig, new in FILEIO_SITES:
+		out.append((va, orig))
+	return out
 
 
 def sha_of(data):
@@ -212,6 +246,28 @@ def detect(pe, data):
 	return "modified-unknown", probs, None
 
 
+def detect_fileio(pe, data):
+	"""Returns (state, problems). state: original|patched|modified-unknown."""
+	return check_sites(pe, data, FILEIO_SITES)
+
+
+def detect_patch(pe, data, patch):
+	"""State string of one named patch."""
+	if patch == "fileio":
+		return detect_fileio(pe, data)[0]
+	return detect(pe, data)[0]
+
+
+def base_sha(pe, data):
+	"""sha256 of the file with every known site of every patch virtually restored to the original."""
+	buf = bytearray(data)
+	for va, orig in all_known_sites():
+		off, sec = file_off(pe, va)
+		if off is not None and off + len(orig) <= len(buf):
+			buf[off:off + len(orig)] = orig
+	return sha_of(bytes(buf))
+
+
 def load(path):
 	with open(path, "rb") as f:
 		data = f.read()
@@ -252,17 +308,50 @@ def self_check():
 		for a, t in targets.items():
 			if CAVE_VA <= t < CAVE_VA + len(raw):
 				assert t in starts, "jump into middle of instruction"
+	fo = list(md.disasm(FILEIO_SITES[0][2], FILEIO_VA))
+	fn = list(md.disasm(FILEIO_SITES[0][3], FILEIO_VA))
+	assert len(fo) == 1 and fo[0].mnemonic == "je" and fo[0].operands[0].imm == FILEIO_TARGET
+	assert len(fn) == 1 and fn[0].mnemonic == "jmp" and fn[0].operands[0].imm == FILEIO_TARGET
+	assert fo[0].size == fn[0].size == 2
 	return True
 
 
-def cmd_status(path):
-	data, pe = load(path)
+def print_header(path, data, pe):
 	h = sha_of(data)
+	b = base_sha(pe, data)
 	print("exe: %s" % path)
-	print("sha256: %s (%s)" % (h, "known build" if h == SHA else "patched/unknown or other build"))
+	if h == SHA:
+		note = "known build, original"
+	elif b == SHA:
+		note = "known build with patches applied (original sha256 %s)" % SHA
+	else:
+		note = "other build or modified outside the known sites"
+	print("sha256: %s (%s)" % (h, note))
+	return b
+
+
+def cmd_status(path, patch=None):
+	"""patch None: print both patches, return the onebank state. Else print/return that patch only."""
+	data, pe = load(path)
+	b = print_header(path, data, pe)
+	if patch in (None, "fileio"):
+		fst, fprobs = detect_fileio(pe, data)
+		if b != SHA and fst == "original":
+			fst = "original-bytes-but-other-sha"
+		print("patch fileio: %s" % fst)
+		for name, va, orig, new in FILEIO_SITES:
+			off, sec = file_off(pe, va)
+			if sec is not None:
+				print("  %s va=0x%x off=0x%x section=%s exec=%s" % (name, va, off,
+					sec.Name.rstrip(b"\0").decode(), bool(sec.Characteristics & 0x20000000)))
+		for p in fprobs:
+			print("  PROBLEM: " + p)
+		if patch == "fileio":
+			return fst
 	state, probs, var = detect(pe, data)
-	if h != SHA and state == "original":
+	if b != SHA and state == "original":
 		state = "original-bytes-but-other-sha"
+	print("patch onebank: %s" % state)
 	print("state: %s" % state)
 	if state == "patched-v1":
 		print("  LEGACY cave v1 (rule applies to every system): run 'upgrade' (or 'revert' then 'apply')")
@@ -286,31 +375,52 @@ def backup_path(path):
 	return "%s.orig-%s" % (path, SHA[:8])
 
 
-def cmd_apply(path, yes):
+def cmd_apply(path, yes, patch="onebank"):
 	data, pe = load(path)
 	h = sha_of(data)
-	state, probs, var = detect(pe, data)
-	if state == "patched-v1":
-		print("REFUSED: legacy cave v1 is installed; run 'revert' first (or 'upgrade')")
-		return 1
-	if state == "patched":
-		print("REFUSED: already patched (cave v2)")
-		return 1
-	if state == "partial-cave":
-		print("REFUSED: partial cave bytes from an interrupted write; run revert first")
-		return 1
-	if h != SHA:
-		print("REFUSED: sha256 %s != expected build" % h)
+	b = base_sha(pe, data)
+	if patch == "fileio":
+		state, probs = detect_fileio(pe, data)
+		var = None
+		sites = FILEIO_SITES
+		if state == "patched":
+			print("REFUSED: already patched (fileio)")
+			return 1
+	else:
+		state, probs, var = detect(pe, data)
+		sites = SITES
+		if state == "patched-v1":
+			print("REFUSED: legacy cave v1 is installed; run 'revert' first (or 'upgrade')")
+			return 1
+		if state == "patched":
+			print("REFUSED: already patched (cave v2)")
+			return 1
+		if state == "partial-cave":
+			print("REFUSED: partial cave bytes from an interrupted write; run revert first")
+			return 1
+	if b != SHA:
+		print("REFUSED: build sha256 %s (known sites restored) != expected build" % b)
 		return 1
 	if probs or state != "original":
 		print("REFUSED: state=%s %s" % (state, "; ".join(probs)))
 		print("  if an earlier apply was interrupted, restore the backup: %s" % backup_path(path))
 		return 1
-	print("Plan for %s (cave v2, ends at 0x%x):" % (path, CAVE_END))
-	for name, va, orig, new in SITES:
+	# the other patches must be in a clean state too (original or fully patched)
+	for other in PATCHES:
+		if other != patch:
+			ost = detect_patch(pe, data, other)
+			if ost not in ("original", "patched", "patched-v1"):
+				print("REFUSED: patch %s is in state %s; fix it first (revert --patch %s)" % (other, ost, other))
+				return 1
+	bk = backup_path(path)
+	if not os.path.exists(bk) and h != SHA:
+		print("REFUSED: the exe already carries a patch and no backup exists (%s)." % bk)
+		print("  create the backup from a verified original first (revert --all, check sha256, then apply)")
+		return 1
+	print("Plan for %s (patch %s%s):" % (path, patch, ", cave v2, ends at 0x%x" % CAVE_END if patch == "onebank" else ""))
+	for name, va, orig, new in sites:
 		off, _ = file_off(pe, va)
 		print("  %s: off 0x%x  %s -> %s" % (name, off, orig.hex()[:24], new.hex()[:24]))
-	bk = backup_path(path)
 	print("  backup: %s (%s)" % (bk, "exists, kept" if os.path.exists(bk) else "will be created"))
 	if not yes:
 		if input("type 'yes' to apply: ").strip() != "yes":
@@ -328,38 +438,67 @@ def cmd_apply(path, yes):
 			else:
 				print("  existing backup is not the original build: %s" % bk)
 			return 1
-	order = [s for s in SITES if s[0] != "hook"] + [s for s in SITES if s[0] == "hook"]
+	order = [s for s in sites if s[0] != "hook"] + [s for s in sites if s[0] == "hook"]
 	with open(path, "r+b") as f:
 		for name, va, orig, new in order:  # cave first, hook last
 			off, _ = file_off(pe, va)
 			f.seek(off)
 			f.write(new)
 	data2, pe2 = load(path)
-	state, probs, var = detect(pe2, data2)
+	state = detect_patch(pe2, data2, patch)
 	if state != "patched":
 		print("VERIFY FAILED: state=%s" % state)
 		return 1
-	print("applied; sha256 now %s" % sha_of(data2))
+	print("applied %s; sha256 now %s" % (patch, sha_of(data2)))
 	return 0
 
 
-def cmd_revert(path):
+def revert_report(path, what, data2, pe2):
+	"""Prints the result of a revert; ok when the build sha is the original (and the file sha too if no patch is left)."""
+	h = sha_of(data2)
+	b = base_sha(pe2, data2)
+	left = [p for p in PATCHES if detect_patch(pe2, data2, p) != "original"]
+	if h == SHA:
+		print("reverted %s; sha256 %s (OK original)" % (what, h))
+		return 0
+	if b == SHA and left:
+		print("reverted %s; sha256 %s (OK, still patched: %s)" % (what, h, ", ".join(left)))
+		return 0
+	print("reverted %s; sha256 %s (MISMATCH)" % (what, h))
+	return 1
+
+
+def cmd_revert(path, patch="onebank"):
 	data, pe = load(path)
+	if patch == "fileio":
+		state, probs = detect_fileio(pe, data)
+		if state == "original":
+			print("already original (fileio); sha256 %s" % sha_of(data))
+			return 0 if base_sha(pe, data) == SHA else 1
+		if state != "patched":
+			print("REFUSED: fileio state=%s; restore the backup %s manually" % (state, backup_path(path)))
+			return 1
+		with open(path, "r+b") as f:
+			for name, va, orig, new in FILEIO_SITES:
+				off, _ = file_off(pe, va)
+				f.seek(off)
+				f.write(orig)
+		data2, pe2 = load(path)
+		return revert_report(path, "fileio", data2, pe2)
 	state, probs, var = detect(pe, data)
 	if state == "original":
 		print("already original; sha256 %s" % sha_of(data))
-		return 0 if sha_of(data) == SHA else 1
+		return 0 if base_sha(pe, data) == SHA else 1
 	if state == "partial-cave":
 		coff, _ = file_off(pe, CAVE_VA)
 		with open(path, "r+b") as f:
 			f.seek(coff)
 			f.write(b"\x00" * CAVE_LEN)
-		data2, _ = load(path)
-		h = sha_of(data2)
-		if h == SHA:
-			print("partial cave cleaned; sha256 %s (OK original)" % h)
+		data2, pe2 = load(path)
+		if base_sha(pe2, data2) == SHA:
+			print("partial cave cleaned; sha256 %s" % sha_of(data2))
 			return 0
-		print("partial cave zeroed but sha256 %s != original: the exe differs from the known build elsewhere; restore the backup %s" % (h, backup_path(path)))
+		print("partial cave zeroed but build sha256 != original: the exe differs from the known build elsewhere; restore the backup %s" % backup_path(path))
 		return 1
 	if state not in ("patched", "patched-v1"):
 		print("REFUSED: state=%s; restore the backup %s manually" % (state, backup_path(path)))
@@ -370,9 +509,19 @@ def cmd_revert(path):
 			off, _ = file_off(pe, va)
 			f.seek(off)
 			f.write(orig)
-	data2, _ = load(path)
-	h = sha_of(data2)
-	print("reverted %s; sha256 %s (%s)" % (var, h, "OK original" if h == SHA else "MISMATCH"))
+	data2, pe2 = load(path)
+	return revert_report(path, var, data2, pe2)
+
+
+def cmd_revert_all(path):
+	"""Reverts every patch (fileio first), then requires the file sha256 == original."""
+	for p in ("fileio", "onebank"):
+		if cmd_revert(path, p) != 0:
+			print("REVERT --ALL STOPPED at patch %s" % p)
+			return 1
+	data, pe = load(path)
+	h = sha_of(data)
+	print("revert --all: sha256 %s (%s)" % (h, "OK original" if h == SHA else "MISMATCH"))
 	return 0 if h == SHA else 1
 
 
@@ -399,11 +548,24 @@ def cmd_upgrade(path, yes):
 	return cmd_apply(path, True)
 
 
-def cmd_verify(path):
+def cmd_verify(path, patch="onebank"):
 	self_check()
 	data, pe = load(path)
-	state, probs, var = detect(pe, data)
 	md = Cs(CS_ARCH_X86, CS_MODE_32)
+	if patch == "fileio":
+		state, probs = detect_fileio(pe, data)
+		print("fileio: %s" % state)
+		for name, va, orig, new in FILEIO_SITES:
+			off, _ = file_off(pe, va)
+			cur = data[off:off + len(orig)]
+			shown = "patched" if cur == new else "original" if cur == orig else "UNKNOWN"
+			print("[%s] 0x%x off 0x%x (%s)" % (name, va, off, shown))
+			for i in md.disasm(cur, va):
+				print("  %x: %s %s" % (i.address, i.mnemonic, i.op_str))
+		for p in probs:
+			print("  PROBLEM: " + p)
+		return 1 if (state == "modified-unknown" or probs) else 0
+	state, probs, var = detect(pe, data)
 	if state == "patched-v1":
 		print("NOTE: legacy cave v1 is present (rule applies to every system); 'upgrade' installs v2")
 	for name, va, orig, new in SITES:
@@ -438,9 +600,7 @@ def cmd_selftest(src):
 	tmp = tempfile.mkdtemp(prefix="exepatch_")
 	exe = os.path.join(tmp, "stbc.exe")
 	shutil.copyfile(src, exe)
-	d0, pe0 = load(exe)
-	if detect(pe0, d0)[0] in ("patched", "patched-v1", "partial-cave"):
-		cmd_revert(exe)  # the source exe is already patched: test from its original state
+	cmd_revert_all(exe)  # the source exe may already carry patches: test from its original state
 	ok = True
 	res = [True]
 	def expect(c, msg):
@@ -491,6 +651,53 @@ def cmd_selftest(src):
 		rc, out = capture(cmd_apply, exe, True)
 		expect(rc == 1 and "run revert first" in out, "apply refused on partial-cave (%s)" % label)
 		expect(cmd_revert(exe) == 0 and sha_now() == SHA, "revert cleans partial-cave (%s) -> original" % label)
+	bk = backup_path(exe)
+	def bk_stat():
+		with open(bk, "rb") as f:
+			return sha_of(f.read()), os.stat(bk).st_mtime_ns
+	bk0 = bk_stat()
+	expect(bk0[0] == SHA, "backup is the pristine original")
+	# fileio alone
+	expect(cmd_apply(exe, True, "fileio") == 0, "fileio apply --yes")
+	expect(cmd_status(exe, "fileio") == "patched", "fileio status = patched")
+	expect(cmd_status(exe) == "original", "onebank untouched by fileio apply")
+	expect(cmd_verify(exe, "fileio") == 0, "fileio verify")
+	rc, out = capture(cmd_apply, exe, True, "fileio")
+	expect(rc == 1 and "already patched (fileio)" in out, "fileio second apply refused")
+	expect(cmd_revert(exe, "fileio") == 0 and sha_now() == SHA, "fileio revert -> original sha")
+	expect(cmd_status(exe, "fileio") == "original", "fileio status = original")
+	# both, in both orders; revert one keeps the other
+	for first, second in (("onebank", "fileio"), ("fileio", "onebank")):
+		expect(cmd_apply(exe, True, first) == 0 and cmd_apply(exe, True, second) == 0, "apply %s then %s" % (first, second))
+		expect(cmd_status(exe) == "patched" and cmd_status(exe, "fileio") == "patched", "both patched (%s first)" % first)
+		expect(cmd_verify(exe) == 0 and cmd_verify(exe, "fileio") == 0, "verify both (%s first)" % first)
+		expect(cmd_revert(exe, first) == 0, "revert %s only" % first)
+		expect(cmd_status(exe, second) == "patched" and cmd_status(exe, first) == "original", "%s kept after reverting %s" % (second, first))
+		expect(cmd_revert(exe, second) == 0 and sha_now() == SHA, "revert %s -> original sha" % second)
+	expect(cmd_apply(exe, True) == 0 and cmd_apply(exe, True, "fileio") == 0, "apply both for revert --all")
+	expect(cmd_revert_all(exe) == 0 and sha_now() == SHA, "revert --all -> original sha")
+	expect(bk_stat() == bk0, "backup created once and unchanged")
+	# patched exe and no backup: apply refused
+	expect(cmd_apply(exe, True) == 0, "apply onebank (for no-backup test)")
+	os.remove(bk)
+	rc, out = capture(cmd_apply, exe, True, "fileio")
+	expect(rc == 1 and "no backup exists" in out and not os.path.exists(bk), "apply refused on patched exe without backup")
+	expect(cmd_revert_all(exe) == 0 and sha_now() == SHA, "revert --all after refusal -> original")
+	# corrupted fileio site byte
+	d, pe = load(exe)
+	foff, _ = file_off(pe, FILEIO_VA)
+	with open(exe, "r+b") as f:
+		f.seek(foff)
+		f.write(b"\x75")
+	expect(cmd_status(exe, "fileio") == "modified-unknown", "corrupted fileio site -> modified-unknown")
+	expect(cmd_apply(exe, True, "fileio") == 1, "fileio apply refused on corrupted site")
+	expect(cmd_apply(exe, True) == 1, "onebank apply refused while fileio site is corrupted")
+	d, _ = load(exe)
+	expect(d[foff] == 0x75, "corrupted fileio exe left untouched")
+	with open(exe, "r+b") as f:
+		f.seek(foff)
+		f.write(FILEIO_SITES[0][2][:1])
+	expect(sha_now() == SHA, "fileio site repaired")
 	# negative: corrupt one hook byte
 	d, pe = load(exe)
 	off, _ = file_off(pe, HOOK_VA)
@@ -515,18 +722,30 @@ def main(argv):
 	if "--exe" in argv:
 		path = argv[argv.index("--exe") + 1]
 	yes = "--yes" in argv
+	patch = "onebank"
+	if "--patch" in argv:
+		i = argv.index("--patch")
+		patch = argv[i + 1] if i + 1 < len(argv) else ""
+		if patch not in PATCHES:
+			print("unknown patch %r; use one of: %s" % (patch, ", ".join(PATCHES)))
+			return 1
 	self_check()
 	if cmd == "status":
 		cmd_status(path)
 		return 0
 	if cmd == "apply":
-		return cmd_apply(path, yes)
+		return cmd_apply(path, yes, patch)
 	if cmd == "upgrade":
+		if patch != "onebank":
+			print("upgrade only exists for onebank")
+			return 1
 		return cmd_upgrade(path, yes)
 	if cmd == "revert":
-		return cmd_revert(path)
+		if "--all" in argv:
+			return cmd_revert_all(path)
+		return cmd_revert(path, patch)
 	if cmd == "verify":
-		return cmd_verify(path)
+		return cmd_verify(path, patch)
 	if cmd == "selftest":
 		return cmd_selftest(path)
 	print(__doc__)
