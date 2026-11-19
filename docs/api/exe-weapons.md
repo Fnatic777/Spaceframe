@@ -82,6 +82,14 @@ WeaponSystem vtable 0x8938c4, PhaserSystem 0x893240: #25 Update(dt) 0x5847d0 (sh
 - Not covered: the sticky path (0x584ee2): a bank that still holds its previous target keeps it even if another bank fires there. Not seen in game yet; second hook near 0x584eed if it shows.
 - Cave v2 (88 bytes, VA 0x8879f2..0x887a4a, confirmed in game): starts with `mov ecx,[esp+4]; mov edx,[ecx]; push 0x801f; call [edx+8]` (virtual IsA, thiscall, ret 4); a system that is not a PhaserSystem takes the original path (`mov edx,[esi]; jmp 0x584f2a`). Type ids: PhaserSystem 0x801f, PulseWeaponSystem 0x8020, TorpedoSystem 0x8021, WeaponSystem 0x801d. `tools/exe_patch.py` keeps cave v1 as legacy (`status` shows patched-v1, `upgrade` moves to v2).
 
+## Patch: fileio (Python open allowed; applied by the user 2026-11-19, confirmed in game)
+- Python builtin `open` (VA 0x7551e0) refuses file IO with `IOError: Securelevel prevents file IO.` when `0x74bc10()` is true. 0x74bc10 reads the securelevel counter `[0x99ee38]` and returns `> 0`; at runtime the counter is > 0 (confirmed: the error shows in game).
+- Site: VA 0x7551fa, 2 bytes `74 6c` (`je 0x755268`) -> `EB 6C` (`jmp 0x755268`, same target), so the securelevel check never blocks. Optional patch `fileio` of `tools/exe_patch.py` (`apply --patch fileio`, `revert --patch fileio`); independent of `onebank` (the build check restores every site of every patch before hashing). The game boots and Spaceframe's file log works with it (user, 2026-11-19).
+- SECURITY: the check is lifted for every script (game, Bedrock, other mods): any script can then read and write files. Revert when the log is no longer needed.
+
+## App.CPyDebug().Print is a no-op (READ FROM CODE, consequence confirmed in game 2026-11-19)
+- The C++ target of `CPyDebug.Print` is a bare `ret 4` at 0x437350 (compiled out in this build). Nothing is printed to the console, a file or OutputDebugString, so the old Spaceframe `Log` produced no output. Replaced by the `Spaceframe_debug.log` file (needs `fileio`). `tools/dbwin_capture.py` only sees the engine's own TGTrace/OutputDebugString output, never Python logs.
+
 ## PulseWeapon CanHitTarget vs IsInArc (static, not confirmed in game)
 
 - `CanHitTarget`: wrapper 0x6192b0 -> C++ 0x575610. Args: P (world point) and an OUT param written on success. The target is NOT an argument: it is taken from the weapon's own target ID at +0x8c. It checks closing speed and time (time vs the property default 8.0), and its final gate is IsInArc (0x575a60). So it is not an arc query.

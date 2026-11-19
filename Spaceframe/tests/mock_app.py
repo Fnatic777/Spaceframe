@@ -347,6 +347,15 @@ class Point:
 		self.y = y
 		self.z = z
 
+	def GetX(self):
+		return self.x
+
+	def GetY(self):
+		return self.y
+
+	def GetZ(self):
+		return self.z
+
 	def Subtract(self, o):
 		self.x = self.x - o.x
 		self.y = self.y - o.y
@@ -356,6 +365,8 @@ class Point:
 		return (self.x * self.x + self.y * self.y + self.z * self.z) ** 0.5
 
 	def Set(self, o):
+		if not isinstance(o, Point):
+			raise TypeError("Type error. Expected _p_TGPoint3")
 		self.x = o.x
 		self.y = o.y
 		self.z = o.z
@@ -389,6 +400,21 @@ class Point:
 		self.x = x
 		self.y = y
 		self.z = z
+
+
+class Alien:
+	"""A vector of another wrapper class (NiPoint3-like): only x_get/y_get/z_get."""
+	def __init__(self, x=0.0, y=0.0, z=0.0):
+		self.v = (x, y, z)
+
+	def x_get(self):
+		return self.v[0]
+
+	def y_get(self):
+		return self.v[1]
+
+	def z_get(self):
+		return self.v[2]
 
 
 class Bank:
@@ -438,6 +464,51 @@ class Tube:
 
 	def GetWorldLocation(self):
 		return Point(self.pPos.x, self.pPos.y, self.pPos.z)
+
+	# Torpedo arc: a fixed cone of +-fLim rad on two axes (identity ship
+	# rotation). pPos is the tube's world point, vLocal its ship-local offset
+	# (default: same as pPos). iUpSign picks the game's Up = sign * cross(Right, Dir).
+	vRight = None
+	vLocal = None
+	fLim = 0.523598
+	iUpSign = 1
+	vCanHit = None	# None = same as IsInArc; "raise" = the call fails
+	iArc = None	# None = the cone model; 1/0 = fixed; "raise" = fails
+
+	def GetDirection(self):
+		return Point(self.vDir.x, self.vDir.y, self.vDir.z)
+
+	def GetRight(self):
+		v = self.vRight or Point(0.0, 1.0, 0.0)
+		return Point(v.x, v.y, v.z)
+
+	def GetPosition(self):
+		v = self.vLocal or self.pPos
+		return Point(v.x, v.y, v.z)
+
+	def IsInArc(self, pPoint):
+		import math
+		if self.iArc == "raise":
+			raise TypeError("IsInArc")
+		if self.iArc is not None:
+			return self.iArc
+		d = Point(pPoint.x - self.pPos.x, pPoint.y - self.pPos.y, pPoint.z - self.pPos.z)
+		f = Point(self.vDir.x, self.vDir.y, self.vDir.z)
+		v = self.vRight or Point(0.0, 1.0, 0.0)
+		r = Point(v.x, v.y, v.z)
+		u = Point(r.y * f.z - r.z * f.y, r.z * f.x - r.x * f.z, r.x * f.y - r.y * f.x)
+		u.Scale(float(self.iUpSign))
+		df = d.Dot(f)
+		if df <= 0.0:
+			return 0
+		return int(abs(math.atan2(d.Dot(r), df)) <= self.fLim and abs(math.atan2(d.Dot(u), df)) <= self.fLim)
+
+	def CanHit(self, pPoint):
+		if self.vCanHit == "raise":
+			raise TypeError("CanHit")
+		if self.vCanHit is not None:
+			return self.vCanHit
+		return self.IsInArc(pPoint)
 
 
 class Pulse:
@@ -801,6 +872,8 @@ def make_app():
 	App.ET_INPUT_FIRE_PRIMARY = 9001
 	App.ET_INPUT_FIRE_SECONDARY = 9002
 	App.ET_INPUT_FIRE_TERTIARY = 9003
+	App.ET_WEAPON_FIRED = 9201
+	App.Weapon_Cast = lambda o: o
 	App.ET_ST_BUTTON_CLICKED = 9100
 	counter = [10000]
 

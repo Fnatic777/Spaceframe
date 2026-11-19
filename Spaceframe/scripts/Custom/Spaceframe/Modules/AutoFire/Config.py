@@ -87,11 +87,11 @@ PulseConeNearDistance = 5
 # Distances as shown in game. Once firing, it keeps firing until the point
 # is more than PulseArcHysteresis percentage points past that limit (never
 # beyond the edge of the arc), so it does not flicker at the border.
-PulseArcPercentFar = 50
+PulseArcPercentFar = 70
 PulseArcPercentNear = 90
 PulseArcFarDistance = 30
 PulseArcNearDistance = 5
-PulseArcHysteresis = 10
+PulseArcHysteresis = 5
 
 # --- Firing solution (torpedoes and pulse weapons) -----------------------
 # For each loaded tube, Auto Fire predicts where the target will be when
