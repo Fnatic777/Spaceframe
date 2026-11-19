@@ -1,4 +1,4 @@
-"""STProbe tests (throwaway experiment module): lifecycle, keys, run engine, pure functions."""
+"""STProbe tests (throwaway probe module): lifecycle, keys, run engine, pure functions."""
 import builtins
 import os
 import string
@@ -48,10 +48,6 @@ class FakeWeapon:
 	def StopFiring(self):
 		CALLS.append(("w.StopFiring", self.sName))
 		self.firing = 0
-
-	def SetFiring(self, i):
-		CALLS.append(("w.SetFiring", self.sName, i))
-		self.firing = i
 
 	def Fire(self, f, i):
 		CALLS.append(("w.Fire", self.sName))
@@ -120,16 +116,6 @@ class FakeSystem:
 		for w in self.weapons:
 			w.firing = 0
 
-	def StopFiringAtTarget(self, pTarget):
-		self.log.append(("stopat", pTarget.GetObjID()))
-		if pTarget in self.targets:
-			self.targets.remove(pTarget)
-
-	def RemoveFromTargetList(self, pTarget):
-		self.log.append(("remove", pTarget.GetObjID()))
-		if pTarget in self.targets:
-			self.targets.remove(pTarget)
-
 	def ClearTargetList(self):
 		self.log.append(("clear",))
 		self.targets = []
@@ -172,11 +158,6 @@ class FakeSystem:
 
 
 class RecShip(mock_app.Ship):
-	script = None
-
-	def GetScript(self):
-		return self.script
-
 	def GetWeaponSystemGroup(self, e):
 		CALLS.append(("ship.GetWeaponSystemGroup", e))
 		return self.groups.get(e)
@@ -311,21 +292,40 @@ def text():
 	return "\n".join(BANNERS)
 
 
-def fire_phaser_ab(W):
-	# Engine policy of the fake: w0 fires at A, w1 at B, w2 idle.
-	W.phasers.assign = [W.A.GetObjID(), W.B.GetObjID(), None]
+def fire_torp_ab(W):
+	# Engine policy of the fake: tube 0 fires at A, tube 1 at B.
+	W.torps.assign = [W.A.GetObjID(), W.B.GetObjID()]
+
+
+def torp_world():
+	# A single-fire torpedo system: the engine only fires one tube at a time
+	# unless the PROPERTY flag was cleared (group modes do not help).
+	W = setup(lTorp=[FakeWeapon("T1", "torp", (1, 1)), FakeWeapon("T2", "torp", (0, 1)), FakeWeapon("T3", "torp", (1, 0))])
+	pSys = W.torps
+	pSys.prop.single = 1
+	idA = W.A.GetObjID()
+	idB = W.B.GetObjID()
+
+	def policy(p):
+		if p.prop.single:
+			p.assign = [idA, None, None]
+		else:
+			p.assign = [idA, idB, None]
+	pSys.policy = policy
+	W.kindsys = pSys
+	return W
 
 
 # --- lifecycle -------------------------------------------------------------
 def test_start_twice_stop_clean():
 	W = setup()
 	W.STP.Start(W.core)
-	for eType in (9001, 9002, 9003, 9201, 9202):
+	for eType in (9201, 9202):
 		assert W.App.g_kEventManager.count(eType) == 1
 	assert W.App._top.handlers.count((W.App.ET_KEYBOARD, W.STP.KEY_HANDLER)) == 1
 	del CALLS[:]
 	W.STP.Stop()
-	for eType in (9001, 9002, 9003, 9201, 9202):
+	for eType in (9201, 9202):
 		assert W.App.g_kEventManager.count(eType) == 0
 	assert W.App._top.handlers == []
 	assert CALLS == []
@@ -333,8 +333,8 @@ def test_start_twice_stop_clean():
 
 def test_stop_during_run_touches_no_ship():
 	W = setup()
-	fire_phaser_ab(W)
-	W.STP.Begin("MULTI_PHASER")
+	fire_torp_ab(W)
+	W.STP.Begin("MULTI_TORP")
 	assert W.STP.g_dRun != None
 	del CALLS[:]
 	W.STP.Stop()
@@ -374,7 +374,7 @@ def test_keys_not_consumed_when_not_allowed():
 
 def test_select_cycles_and_shows_results():
 	W = setup()
-	W.STP.g_dResults["MULTI_PHASER"] = ["RESULT LINE ONE"]
+	W.STP.g_dResults["MULTI_TORP"] = ["RESULT LINE ONE"]
 	seen = []
 	iNum = len(W.STP.TESTS)
 	for n in range(iNum):
@@ -382,24 +382,24 @@ def test_select_cycles_and_shows_results():
 		W.STP.OnKeyboard(W.App._top, key(W, 107))
 		seen.append(W.STP.TESTS[W.STP.g_iSel])
 		assert W.STP.TESTS[W.STP.g_iSel] in text()
-		if W.STP.TESTS[W.STP.g_iSel] == "MULTI_PHASER":
+		if W.STP.TESTS[W.STP.g_iSel] == "MULTI_TORP":
 			assert "RESULT LINE ONE" in text()
 	assert W.STP.g_iSel == 0
-	assert len(seen) == iNum and seen[0] == "MULTI_PHASER" and seen[8] == "TORP_RETARGET"
-	assert seen[9] == "SINGLEFIRE" and seen[-2] == "ALL" and seen[-1] == "INFO"
-	for sName in ("SINGLEFIRE_PHASER", "SINGLEFIRE_PULSE", "SINGLEFIRE_TORP", "MANUAL_PROP0",
-		"ORDER_PROP0", "ORDER3", "SHARED"):
-		assert sName in seen and sName in W.STP.HINT and sName in W.STP.KINDS
+	assert len(seen) == iNum and seen[0] == "MULTI_TORP" and seen[-2] == "ALL" and seen[-1] == "INFO"
+	for sName in W.STP.TESTS:
+		assert sName in W.STP.HINT and sName in W.STP.KINDS
+	assert sorted(W.STP.TESTS) == sorted(["INFO", "MULTI_TORP", "FIRE_ONE", "TORP_RETARGET",
+		"SINGLEFIRE_TORP", "ARCFORMULA", "ALL"])
 
 
 def test_k_aborts_running_test():
 	W = setup()
-	fire_phaser_ab(W)
-	W.STP.Begin("MULTI_PHASER")
+	fire_torp_ab(W)
+	W.STP.Begin("MULTI_TORP")
 	W.STP.OnKeyboard(W.App._top, key(W, 107))
 	assert W.STP.g_dRun == None
 	assert "aborted" in text()
-	assert W.phasers.log[-1] == ("stop",)
+	assert W.torps.log[-1] == ("stop",)
 
 
 # --- preconditions -------------------------------------------------------------
@@ -407,12 +407,12 @@ def test_begin_refuses():
 	W = setup()
 	af = types.SimpleNamespace(IsEnabled=lambda: 1)
 	W.core.modules["AutoFire"] = af
-	W.STP.Begin("MULTI_PHASER")
+	W.STP.Begin("MULTI_TORP")
 	assert W.STP.g_dRun == None and "NOT RUN" in text() and "Auto Fire" in text()
 	W.core.modules["AutoFire"] = None
 	del BANNERS[:]
 	W.core.g_pMission = mock_app.Mission([W.A])
-	W.STP.Begin("MULTI_PHASER")
+	W.STP.Begin("MULTI_TORP")
 	assert W.STP.g_dRun == None and "no second enemy" in text()
 	W.core.g_pMission = mock_app.Mission([W.A, W.B])
 	del BANNERS[:]
@@ -421,51 +421,11 @@ def test_begin_refuses():
 	assert W.STP.g_dRun == None and "NOT RUN" in text() and "torp" in text()
 	del BANNERS[:]
 	W.ship.target = None
-	W.STP.Begin("MULTI_PHASER")
+	W.STP.Begin("MULTI_TORP")
 	assert W.STP.g_dRun == None and "NOT RUN" in text()
 
 
-# --- MULTI_PHASER and verdicts -------------------------------------------------
-def test_multi_phaser_pass():
-	W = setup()
-	fire_phaser_ab(W)
-	W.STP.Begin("MULTI_PHASER")
-	idA = W.A.GetObjID()
-	idB = W.B.GetObjID()
-	assert W.phasers.log[:4] == [("stop",), ("start", idA), ("start", idB), ("force", 1)]
-	advance(W, 3.0)
-	assert W.STP.g_dRun == None
-	assert W.phasers.log.count(("stop",)) == 2	# the reset before, one release after
-	assert W.phasers.log[-1] == ("stop",)
-	assert "PASS" in text() and "list A:1 B:1" in text()
-	assert "w0 r:AB f:A" in text()
-
-
-def test_multi_phaser_fail():
-	W = setup(lPhaser=[FakeWeapon("P1", "phaser", (1, 1)), FakeWeapon("P2", "phaser", (1, 0)), FakeWeapon("P3", "phaser", (0, 1))])
-	W.phasers.assign = [W.A.GetObjID(), W.A.GetObjID(), W.A.GetObjID()]
-	W.STP.Begin("MULTI_PHASER")
-	advance(W, 3.0)
-	assert "FAIL" in text() and "onlyB fired:0/1" in text()
-
-
-def test_multi_phaser_inconclusive():
-	W = setup()
-	W.phasers.assign = [W.A.GetObjID(), W.A.GetObjID(), W.A.GetObjID()]
-	W.STP.Begin("MULTI_PHASER")
-	advance(W, 3.0)
-	assert "INCONCLUSIVE" in text()
-
-
-def test_order_b_first():
-	W = setup()
-	W.STP.Begin("ORDER")
-	assert W.phasers.log[1] == ("start", W.B.GetObjID())
-	assert W.phasers.log[2] == ("start", W.A.GetObjID())
-	advance(W, 3.0)
-	assert "T5 ORDER(B first)" in text()
-
-
+# --- MULTI_TORP --------------------------------------------------------------------
 def test_multi_torp_uses_fired_events():
 	W = setup()
 	W.STP.Begin("MULTI_TORP")
@@ -485,28 +445,28 @@ def test_multi_torp_uses_fired_events():
 
 def test_weapon_error_is_reported():
 	W = setup()
-	fire_phaser_ab(W)
-	W.phasers.weapons[0].raise_tgt = 1
-	W.STP.Begin("MULTI_PHASER")
-	advance(W, 3.0)
+	fire_torp_ab(W)
+	W.torps.weapons[0].raise_tgt = 1
+	W.STP.Begin("MULTI_TORP")
+	advance(W, 5.0)
 	assert W.STP.g_dRun == None
 	assert "ERR GetTargetID" in text()
 
 
 def test_ship_removed_mid_run_aborts():
 	W = setup()
-	fire_phaser_ab(W)
-	W.STP.Begin("MULTI_PHASER")
+	fire_torp_ab(W)
+	W.STP.Begin("MULTI_TORP")
 	advance(W, 0.5)
 	del mock_app.SHIPS[W.A.GetObjID()]
 	W.A.IsDead = lambda: 1 / 0	# any later call into A would blow up
 	advance(W, 0.5)
 	assert W.STP.g_dRun == None and "ABORT" in text() and "A gone" in text()
-	assert W.phasers.log[-1] == ("stop",)
+	assert W.torps.log[-1] == ("stop",)
 	# The player's ship gone: abort without touching its weapons.
 	W = setup()
-	fire_phaser_ab(W)
-	W.STP.Begin("MULTI_PHASER")
+	fire_torp_ab(W)
+	W.STP.Begin("MULTI_TORP")
 	advance(W, 0.5)
 	del mock_app.SHIPS[W.ship.GetObjID()]
 	n = len(CALLS)
@@ -515,7 +475,7 @@ def test_ship_removed_mid_run_aborts():
 	assert len(CALLS) == n
 
 
-# --- other tests ---------------------------------------------------------------
+# --- INFO -----------------------------------------------------------------------
 def test_info_lines():
 	W = setup()
 	W.STP.Begin("INFO")
@@ -544,28 +504,7 @@ def test_info_without_target_says_so():
 	assert "select an enemy target (A)" in "\n".join(W.STP.g_dResults["INFO"])
 
 
-def test_release_b_snapshots():
-	W = setup()
-	fire_phaser_ab(W)
-	W.STP.Begin("RELEASE_B")
-	advance(W, 9.0)
-	assert W.STP.g_dRun == None
-	idB = W.B.GetObjID()
-	assert ("stopat", idB) in W.phasers.log and ("remove", idB) in W.phasers.log
-	assert "S1 (both) A1 B1" in text()
-	assert "S2 (after StopFiringAtTarget B) A1 B0" in text()
-
-
-def test_hold_one_stays_off():
-	W = setup()
-	fire_phaser_ab(W)
-	W.STP.Begin("HOLD_ONE")
-	advance(W, 7.0)
-	assert W.STP.g_dRun == None
-	assert ("w.StopFiring", "Phaser 2") in CALLS and ("w.SetFiring", "Phaser 2", 0) in CALLS
-	assert "w1 StopFiring: stayed off" in text() and "SetFiring(0): stayed off" in text()
-
-
+# --- FIRE_ONE, TORP_RETARGET -----------------------------------------------------
 def test_fire_one():
 	W = setup()
 	W.STP.Begin("FIRE_ONE")
@@ -601,50 +540,12 @@ def test_torp_retarget_ignores_foreign_torpedo_and_times_out():
 	assert W.STP.g_dRun == None and "no torpedo seen" in text()
 
 
-def test_manual_press_release():
-	W = setup()
-	fire_phaser_ab(W)
-	W.STP.Begin("MANUAL")
-	advance(W, 1.0)
-	W.STP.OnManualFire(W.App._top, mock_app.Event(9001, 1))
-	advance(W, 1.0)
-	W.phasers.targets = []		# the game's release wipes the list
-	W.STP.OnManualFire(W.App._top, mock_app.Event(9001, 0))
-	advance(W, 1.0)
-	advance(W, 3.0)
-	assert W.STP.g_dRun == None
-	assert "press: A1 B1" in text() and "release: A0 B0" in text() and "B alone" in text()
-
-
-def test_manual_timeout():
-	W = setup()
-	W.STP.Begin("MANUAL")
-	advance(W, 21.0)
-	assert W.STP.g_dRun == None and "no press seen" in text()
-
-
-# --- SINGLEFIRE, ALL, log file ---------------------------------------------------
-def single_world():
-	# A single-fire phaser system: the engine only fires one bank at a time
-	# unless the PROPERTY flag was cleared (group modes do not help).
-	W = setup(lPhaser=[FakeWeapon("P1", "phaser", (1, 1)), FakeWeapon("P2", "phaser", (0, 1)), FakeWeapon("P3", "phaser", (1, 0))])
-	W.phasers.prop.single = 1
-	idA = W.A.GetObjID()
-	idB = W.B.GetObjID()
-
-	def policy(pSys):
-		if pSys.prop.single:
-			pSys.assign = [idA, None, None]
-		else:
-			pSys.assign = [idA, idB, None]
-	W.phasers.policy = policy
-	return W
-
-
-def test_singlefire_variants_and_restore():
-	W = single_world()
-	W.STP.Begin("SINGLEFIRE")
-	advance(W, 14.0)
+# --- SINGLEFIRE_TORP, ALL, log file ----------------------------------------------
+def test_singlefire_torp_variants_and_restore():
+	W = torp_world()
+	W.STP.Begin("SINGLEFIRE_TORP")
+	assert W.STP.g_dRun["kind"] == "torp" and W.STP.g_dRun["base"] == "SINGLEFIRE"
+	advance(W, 20.0)
 	assert W.STP.g_dRun == None
 	t = text()
 	assert "base [s1 m1 p1] FAIL simul:0" in t
@@ -652,92 +553,41 @@ def test_singlefire_variants_and_restore():
 	assert "mode0 [s1 m0 p1] FAIL" in t and "mode2 [s1 m2 p1] FAIL" in t
 	assert "mode1 [" not in t	# the current mode is not tried
 	assert "restored: ok [s1 m1 p1]" in t
-	assert W.phasers.prop.single == 1 and W.phasers.mode == 1
+	assert W.kindsys.prop.single == 1 and W.kindsys.mode == 1
 	assert ("p.SetSingleFire", 0) in CALLS and ("p.SetSingleFire", 1) in CALLS
 	assert "log file: written" in t
-	assert W.STP.g_dResults["SINGLEFIRE"][0].startswith("base")
+	assert W.STP.g_dResults["SINGLEFIRE_TORP"][0].startswith("base")
 
 
 def test_singlefire_restore_failure_reported():
-	W = single_world()
-	W.phasers.reject_modes = [1]	# the original mode cannot be set back
-	W.STP.Begin("SINGLEFIRE")
-	advance(W, 14.0)
+	W = torp_world()
+	W.torps.reject_modes = [1]	# the original mode cannot be set back
+	W.STP.Begin("SINGLEFIRE_TORP")
+	advance(W, 20.0)
 	assert W.STP.g_dRun == None
 	assert "restored: failed" in text()
 
 
-def test_singlefire_abort_restores():
-	W = single_world()
-	W.STP.Begin("SINGLEFIRE")
-	advance(W, 2.5)		# inside the prop0 variant
-	assert W.phasers.prop.single == 0
-	W.STP.OnKeyboard(W.App._top, key(W, 111))
-	assert W.STP.g_dRun == None
-	assert W.phasers.prop.single == 1 and W.phasers.mode == 1
-	assert "ABORT" in text() and "restored: ok" in text()
-	assert W.phasers.log[-1] == ("stop",)
-
-
 def test_singlefire_stop_touches_no_ship():
-	W = single_world()
-	W.STP.Begin("SINGLEFIRE")
-	advance(W, 2.5)
+	W = torp_world()
+	W.STP.Begin("SINGLEFIRE_TORP")
+	advance(W, 5.0)
 	del CALLS[:]
 	W.STP.Stop()
 	assert W.STP.g_dRun == None and CALLS == []
 
 
 def test_singlefire_property_errors_are_reported():
-	W = single_world()
+	W = torp_world()
 	W.App.WeaponSystemProperty_Cast = lambda o: 1 / 0
-	W.STP.Begin("SINGLEFIRE")
-	advance(W, 14.0)
+	W.STP.Begin("SINGLEFIRE_TORP")
+	advance(W, 20.0)
 	assert W.STP.g_dRun == None
-	assert "WeaponSystemProperty_Cast" in "\n".join(W.STP.g_dResults["SINGLEFIRE"])
-
-
-def kind_world(sKind):
-	# Like single_world, for the torpedo or the pulse system (phasers untouched).
-	if sKind == "torp":
-		W = setup(lTorp=[FakeWeapon("T1", "torp", (1, 1)), FakeWeapon("T2", "torp", (0, 1)), FakeWeapon("T3", "torp", (1, 0))])
-		pSys = W.torps
-	else:
-		W = setup(lPhaser=[FakeWeapon("U1", "pulse", (1, 1)), FakeWeapon("U2", "pulse", (0, 1)), FakeWeapon("U3", "pulse", (1, 0))], lTorp=[])
-		pSys = FakeSystem("pulse", W.phasers.weapons)
-		W.ship.groups[0] = pSys
-	pSys.prop.single = 1
-	idA = W.A.GetObjID()
-	idB = W.B.GetObjID()
-
-	def policy(p):
-		if p.prop.single:
-			p.assign = [idA, None, None]
-		else:
-			p.assign = [idA, idB, None]
-	pSys.policy = policy
-	W.kindsys = pSys
-	return W
-
-
-def test_singlefire_torp_and_pulse_variants_and_restore():
-	for sKind, sTest in (("torp", "SINGLEFIRE_TORP"), ("pulse", "SINGLEFIRE_PULSE")):
-		W = kind_world(sKind)
-		W.STP.Begin(sTest)
-		assert W.STP.g_dRun["kind"] == sKind and W.STP.g_dRun["base"] == "SINGLEFIRE"
-		advance(W, 20.0)
-		assert W.STP.g_dRun == None
-		t = text()
-		assert "base [s1 m1 p1] FAIL simul:0" in t
-		assert "prop0 [s0 m1 p0] PASS simul:1" in t
-		assert "mode0 [s1 m0 p1] FAIL" in t and "mode2 [s1 m2 p1] FAIL" in t
-		assert "restored: ok [s1 m1 p1]" in t
-		assert W.kindsys.prop.single == 1 and W.kindsys.mode == 1
-		assert W.STP.g_dResults[sTest][0].startswith("base")
+	assert "WeaponSystemProperty_Cast" in "\n".join(W.STP.g_dResults["SINGLEFIRE_TORP"])
 
 
 def test_singlefire_torp_leaves_phasers_alone():
-	W = kind_world("torp")
+	W = torp_world()
 	W.phasers.prop.single = 1
 	W.STP.Begin("SINGLEFIRE_TORP")
 	advance(W, 20.0)
@@ -745,269 +595,42 @@ def test_singlefire_torp_leaves_phasers_alone():
 	assert ("p.SetSingleFire", 0) in CALLS
 
 
-def test_singlefire_kind_missing_not_run():
+def test_singlefire_torp_missing_not_run():
 	W = setup()
-	W.STP.Begin("SINGLEFIRE_PULSE")
-	assert W.STP.g_dRun == None and "NOT RUN" in text() and "pulse" in text()
-	del BANNERS[:]
-	W.STP.Begin("SINGLEFIRE_PHASER")
-	assert W.STP.g_dRun != None and W.STP.g_dRun["kind"] == "phaser"
-	W.STP.OnKeyboard(W.App._top, key(W, 111))
-	assert W.STP.g_dRun == None
+	W.ship.groups = {0: W.phasers}
+	W.STP.Begin("SINGLEFIRE_TORP")
+	assert W.STP.g_dRun == None and "NOT RUN" in text() and "torp" in text()
 
 
 def test_singlefire_torp_abort_restores():
-	W = kind_world("torp")
+	W = torp_world()
 	W.STP.Begin("SINGLEFIRE_TORP")
 	advance(W, 5.0)		# inside the prop0 variant
 	assert W.kindsys.prop.single == 0
 	W.STP.OnKeyboard(W.App._top, key(W, 111))
 	assert W.STP.g_dRun == None and W.kindsys.prop.single == 1 and "restored: ok" in text()
-
-
-# --- MANUAL_PROP0 / ORDER_PROP0 ----------------------------------------------------
-def manual_prop0_run(W):
-	W.STP.Begin("MANUAL_PROP0")
-	advance(W, 1.0)
-	W.STP.OnManualFire(W.App._top, mock_app.Event(9001, 1))
-	advance(W, 1.0)
-	W.phasers.targets = []
-	W.STP.OnManualFire(W.App._top, mock_app.Event(9001, 0))
-	advance(W, 4.0)
-
-
-def test_manual_prop0_b_gets_fire_and_restores():
-	W = single_world()
-	W.STP.Begin("MANUAL_PROP0")
-	assert W.phasers.prop.single == 0		# lifted for the whole run
-	W.STP.Stop()
-	W = single_world()
-	manual_prop0_run(W)
-	assert W.STP.g_dRun == None
-	assert "B gets fire: yes" in text() and "press: A1 B1" in text()
-	assert "restored: ok [s1 m1 p1]" in text()
-	assert W.phasers.prop.single == 1 and W.STP.g_dResults["MANUAL_PROP0"][0].startswith("key held")
-
-
-def test_manual_prop0_b_gets_no_fire():
-	W = single_world()
-	W.phasers.policy = lambda p: setattr(p, "assign", [W.A.GetObjID(), None, None])
-	manual_prop0_run(W)
-	assert "B gets fire: no" in text() and W.phasers.prop.single == 1
-
-
-def test_manual_prop0_timeout_and_abort_restore():
-	W = single_world()
-	W.STP.Begin("MANUAL_PROP0")
-	advance(W, 21.0)
-	assert W.STP.g_dRun == None and "no press seen" in text()
-	assert W.phasers.prop.single == 1 and "restored: ok" in text()
-	W = single_world()
-	W.STP.Begin("MANUAL_PROP0")
-	assert W.phasers.prop.single == 0
-	W.STP.OnKeyboard(W.App._top, key(W, 107))
-	assert W.STP.g_dRun == None and W.phasers.prop.single == 1 and "restored: ok" in text()
-
-
-def test_manual_plain_does_not_touch_property():
-	W = single_world()
-	W.STP.Begin("MANUAL")
-	assert W.phasers.prop.single == 1 and W.STP.g_dRun["lift"] == 0
-	W.STP.OnManualFire(W.App._top, mock_app.Event(9001, 1))
-	assert W.STP.g_dRun["phase"] == 2		# MANUAL key events still handled
-	assert ("p.SetSingleFire", 0) not in CALLS
-
-
-def test_order_prop0_lifts_and_restores():
-	W = single_world()
-	W.STP.Begin("ORDER_PROP0")
-	assert W.phasers.prop.single == 0
-	assert W.phasers.log[1] == ("start", W.B.GetObjID())
-	advance(W, 3.0)
-	assert W.STP.g_dRun == None
-	t = text()
-	assert "T5 ORDER_PROP0(B first)" in t and "lifted [s0 m1 p0]" in t
-	assert "restored: ok [s1 m1 p1]" in t and W.phasers.prop.single == 1
-	assert "w1 r:B f:B" in t		# with single fire lifted the B-only bank fires
-
-
-def test_order_plain_keeps_single_fire():
-	W = single_world()
-	W.STP.Begin("ORDER")
-	advance(W, 3.0)
-	assert W.phasers.prop.single == 1 and ("p.SetSingleFire", 0) not in CALLS
-	assert "restored" not in text()
-
-
-# --- ORDER3 ---------------------------------------------------------------------------
-def three_world():
-	W = setup(lPhaser=[FakeWeapon("P1", "phaser", (1, 1, 1)), FakeWeapon("P2", "phaser", (0, 1, 1)), FakeWeapon("P3", "phaser", (1, 0, 0))])
-	W.C = RecShip("Romulan C", 4)
-	W.C.pos = mock_app.Point(30.0, 0.0, 0.0)
-	W.core.g_pMission = mock_app.Mission([W.A, W.B, W.C])
-	W.phasers.prop.single = 1
-
-	def policy(pSys):
-		# first-listed target that the weapon reaches
-		pSys.assign = []
-		for w in pSys.weapons:
-			iTgt = None
-			for t in pSys.targets:
-				if iTgt == None and w.reach[t.GetWorldLocation().x]:
-					iTgt = t.GetObjID()
-			pSys.assign.append(iTgt)
-	W.phasers.policy = policy
-	return W
-
-
-def test_order3_reports_per_weapon_both_orders():
-	W = three_world()
-	W.STP.Begin("ORDER3")
-	assert W.phasers.prop.single == 0
-	assert W.STP.g_dRun["idC"] == W.C.GetObjID()
-	advance(W, 8.0)
-	assert W.STP.g_dRun == None
-	t = text()
-	assert "T11 list A,B,C: A first, kept by 2 of 2 that reach it" in t
-	assert "w0 r:ABC f:A  w1 r:BC f:B  w2 r:A f:A" in t
-	assert "list C,B,A: C first, kept by 2 of 2 that reach it" in t
-	assert "w0 r:ABC f:C  w1 r:BC f:C  w2 r:A f:A" in t
-	assert "restored: ok [s1 m1 p1]" in t and W.phasers.prop.single == 1
-	idA, idB, idC = W.A.GetObjID(), W.B.GetObjID(), W.C.GetObjID()
-	lStarts = [e for e in W.phasers.log if e[0] == "start"]
-	assert lStarts == [("start", idA), ("start", idB), ("start", idC), ("start", idC), ("start", idB), ("start", idA)]
-	assert W.phasers.log[-1] == ("stop",)
-
-
-def test_order3_refuses_without_third_enemy_and_aborts_clean():
-	W = setup()
-	W.STP.Begin("ORDER3")
-	assert W.STP.g_dRun == None and "no third enemy" in text()
-	W = three_world()
-	W.STP.Begin("ORDER3")
-	advance(W, 1.0)
-	W.STP.OnKeyboard(W.App._top, key(W, 111))
-	assert W.STP.g_dRun == None and W.phasers.prop.single == 1 and "restored: ok" in text()
-	W = three_world()
-	W.STP.Begin("ORDER3")
-	advance(W, 1.0)
-	del mock_app.SHIPS[W.C.GetObjID()]
-	W.C.IsDead = lambda: 1 / 0
-	advance(W, 1.0)
-	assert W.STP.g_dRun == None and "C gone" in text() and W.phasers.prop.single == 1
-
-
-def test_order3_stop_touches_no_ship():
-	W = three_world()
-	W.STP.Begin("ORDER3")
-	advance(W, 1.0)
-	del CALLS[:]
-	W.STP.Stop()
-	assert W.STP.g_dRun == None and CALLS == []
-
-
-# --- SHARED ---------------------------------------------------------------------------
-def shared_world(bLinked, iSingle=1):
-	W = setup()
-	W.ship.script = "ships.Galaxy"
-	W.A.script = "ships.Galaxy"
-	W.phasers.prop.single = iSingle
-	pOther = FakeSystem("phaser", [FakeWeapon("O1", "phaser")])
-	if bLinked:
-		pOther.prop = W.phasers.prop		# one property object for both ships
-	else:
-		pOther.prop.single = iSingle
-	W.A.groups[0] = pOther
-	return W
-
-
-def test_shared_no():
-	W = shared_world(0)
-	W.STP.Begin("SHARED")
-	assert "shared: no (other ship single 1/1)" in text()
-	assert "restored: ok [s1 m1 p1]" in text()
-	assert W.phasers.prop.single == 1 and ("p.SetSingleFire", 0) in CALLS
-	assert W.STP.g_dResults["SHARED"][0].startswith("shared: no")
-
-
-def test_shared_yes_and_restores():
-	W = shared_world(1)
-	W.STP.Begin("SHARED")
-	assert "shared: yes (other ship single 1/0)" in text()
-	assert W.phasers.prop.single == 1 and "restored: ok" in text()
-
-
-def test_shared_player_already_zero_flips_to_one():
-	W = shared_world(1, 0)
-	W.STP.Begin("SHARED")
-	assert "shared: yes (other ship single 0/1)" in text()
-	assert W.phasers.prop.single == 0 and ("p.SetSingleFire", 1) in CALLS
-
-
-def test_shared_unknown_cases():
-	W = setup()
-	W.STP.Begin("SHARED")
-	assert "unknown: ship class unreadable" in text()
-	W = shared_world(0)
-	W.A.script = "ships.Akira"
-	del BANNERS[:]
-	W.STP.Begin("SHARED")
-	assert "shared: unknown: no other ship of the class" in text() and "class Galaxy" in text()
-	assert W.phasers.log == [] and ("p.SetSingleFire", 0) not in CALLS
-	W = shared_world(0)
-	W.A.groups = {}		# the other ship has no phaser system: unreadable
-	del BANNERS[:]
-	W.STP.Begin("SHARED")
-	assert "unknown: other ship unreadable" in text() and W.phasers.prop.single == 1
-
-
-def test_shared_finds_friendly_and_skips_self():
-	W = shared_world(1)
-	W.A.script = "ships.Akira"
-	W.F = RecShip("Friend", 5)
-	W.F.script = "ships.Galaxy"
-	W.F.groups[0] = W.A.groups.get(0) or FakeSystem("phaser", [FakeWeapon("F1", "phaser")])
-	W.F.groups[0].prop = W.phasers.prop
-	W.core.g_pMission = mock_app.Mission([W.A, W.B], [W.ship, W.F])	# the player is in its own group
-	W.STP.Begin("SHARED")
-	assert "shared: yes (other ship single 1/0)" in text()
-
-
-def test_shared_restores_when_other_read_fails():
-	W = shared_world(1)
-	pOther = W.A.groups[0]
-	pOther.GetProperty = lambda: 1 / 0
-	W.STP.Begin("SHARED")
-	assert W.phasers.prop.single == 1 and "restored: ok" in text()
-
-
-def test_shared_unreadable_property_is_not_touched():
-	W = shared_world(0)
-	W.phasers.GetProperty = lambda: 1 / 0
-	W.STP.Begin("SHARED")
-	assert "shared: unknown: property unreadable" in text()
-	assert ("p.SetSingleFire", 0) not in CALLS and ("p.SetSingleFire", 1) not in CALLS
+	assert W.torps.log[-1] == ("stop",)
 
 
 # --- dying ship still gets its property back ---------------------------------------
 def test_release_restores_property_of_dying_ship():
-	W = single_world()
-	W.STP.Begin("SINGLEFIRE")
+	W = torp_world()
+	W.STP.Begin("SINGLEFIRE_TORP")
 	for n in range(200):
-		if W.phasers.prop.single == 0 or W.STP.g_dRun == None:
+		if W.torps.prop.single == 0 or W.STP.g_dRun == None:
 			break
 		advance(W, 0.25)
-	assert W.phasers.prop.single == 0 and W.STP.g_dRun != None
+	assert W.torps.prop.single == 0 and W.STP.g_dRun != None
 	W.ship.IsDying = lambda: 1		# still looked up by ID, but dying
 	W.STP.Abort("test")
 	assert W.STP.g_dRun == None
-	assert W.phasers.prop.single == 1
+	assert W.torps.prop.single == 1
 	assert "restored: ok" in text()
 	# A ship that is really gone cannot be restored: reported, not crashed.
-	W = single_world()
-	W.STP.Begin("SINGLEFIRE")
+	W = torp_world()
+	W.STP.Begin("SINGLEFIRE_TORP")
 	for n in range(200):
-		if W.phasers.prop.single == 0 or W.STP.g_dRun == None:
+		if W.torps.prop.single == 0 or W.STP.g_dRun == None:
 			break
 		advance(W, 0.25)
 	del mock_app.SHIPS[W.ship.GetObjID()]
@@ -1054,19 +677,11 @@ def test_show_keeps_restore_line_when_cutting():
 
 
 def test_finish_banner_keeps_restore_line_with_long_report():
-	W = single_world()
-	W.STP.Begin("SINGLEFIRE")
-	advance(W, 14.0)
+	W = torp_world()
+	W.STP.Begin("SINGLEFIRE_TORP")
+	advance(W, 20.0)
 	assert W.STP.g_dRun == None
 	assert "restored: ok" in text()
-
-
-def test_weapon_line_three_targets():
-	STP = STP_mod()
-	dSeen = {0: {"C": 2}, 1: {"A": 1}}
-	dReach = {0: (1, 1, 1), 1: (1, 0, "E"), 2: (0, 0, 0)}
-	assert STP.WeaponLineN(dSeen, dReach, "ABC") == ["w0 r:ABC f:C  w1 r:A? f:A  w2 r:- f:-"]
-	assert STP.WeaponLine({0: {"B": 1}}, {0: (1, 1)}) == ["w0 r:AB f:B"]
 
 
 def run_all(W):
@@ -1076,7 +691,7 @@ def run_all(W):
 
 def test_all_runs_and_reports():
 	W = setup()
-	fire_phaser_ab(W)
+	fire_torp_ab(W)
 	path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_stprobe_test_log.txt")
 	if os.path.exists(path):
 		os.remove(path)
@@ -1089,18 +704,16 @@ def test_all_runs_and_reports():
 		sRep = "\n".join(lRep)
 		for sName in W.STP.ALL_TESTS:
 			assert sName in sRep
-		assert "MULTI_PULSE SKIP" in sRep and "MULTI_PHASER PASS" in sRep and "MULTI_TORP" in sRep
-		assert "ORDER3 SKIP" in sRep and "SINGLEFIRE_PULSE SKIP" in sRep and "SHARED unknown" in sRep
+		assert "MULTI_TORP PASS" in sRep
 		assert "MANUAL" not in sRep and "TORP_RETARGET" not in sRep
 		for sLine in lRep:
 			assert len(sLine) <= W.STP.MAX_WIDTH
 		assert "log file: written" in text()
 		sFile = open(path).read()
-		assert "== MULTI_PHASER PASS ==" in sFile and "T2 PHASER" in sFile and "skipped: no pulse" in sFile
+		assert "== MULTI_TORP PASS ==" in sFile and "T3 TORP" in sFile
 		assert "base [s0 m1 p0]" in sFile
 		# every single test result is kept
-		for sName in ("SINGLEFIRE", "SINGLEFIRE_TORP", "MULTI_PHASER", "ORDER", "ORDER_PROP0", "SHARED",
-			"RELEASE_B", "HOLD_ONE", "FIRE_ONE"):
+		for sName in ("INFO", "SINGLEFIRE_TORP", "MULTI_TORP", "FIRE_ONE"):
 			assert W.STP.g_dResults.get(sName)
 	finally:
 		if os.path.exists(path):
@@ -1116,29 +729,19 @@ def test_all_k_reshows_report():
 	assert W.STP.TESTS[W.STP.g_iSel] == "ALL" and "REPORT LINE" in text()
 
 
-def test_all_abort_releases_and_restores():
-	W = setup()
-	fire_phaser_ab(W)
+def test_all_abort_in_singlefire_variant_restores():
+	W = torp_world()
 	W.STP.Begin("ALL")
-	advance(W, 3.0)		# inside SINGLEFIRE or MULTI_PHASER
-	assert W.STP.g_dRun != None
+	advance(W, 5.0)		# INFO is instant; inside the prop0 variant of SINGLEFIRE_TORP
+	assert W.STP.g_dRun["name"] == "SINGLEFIRE_TORP" and W.torps.prop.single == 0
 	W.STP.OnKeyboard(W.App._top, key(W, 111))
 	assert W.STP.g_dRun == None
-	assert W.phasers.log[-1] == ("stop",)
-	assert W.phasers.prop.single == 0 and W.phasers.mode == 1
+	assert W.torps.prop.single == 1 and W.torps.mode == 1 and "restored: ok" in text()
+	assert W.torps.log[-1] == ("stop",)
+	assert "ABORT" in text()
 	n = len(CALLS)
 	advance(W, 5.0)		# nothing continues
 	assert len(CALLS) == n
-	assert "ABORT" in text()
-
-
-def test_all_abort_in_singlefire_variant_restores():
-	W = single_world()
-	W.STP.Begin("ALL")
-	advance(W, 2.5)
-	assert W.STP.g_dRun["name"] == "SINGLEFIRE" and W.phasers.prop.single == 0
-	W.STP.OnKeyboard(W.App._top, key(W, 111))
-	assert W.phasers.prop.single == 1 and "restored: ok" in text()
 
 
 def test_all_refuses_without_second_enemy():
@@ -1150,15 +753,15 @@ def test_all_refuses_without_second_enemy():
 
 def test_log_file_failure_does_not_raise():
 	W = setup()
-	fire_phaser_ab(W)
+	fire_torp_ab(W)
 	pReal = builtins.open
 
 	def broken(*a):
 		raise IOError("denied")
 	builtins.open = broken
 	try:
-		W.STP.Begin("MULTI_PHASER")
-		advance(W, 3.0)
+		W.STP.Begin("MULTI_TORP")
+		advance(W, 5.0)
 		assert W.STP.g_dRun == None
 		assert "PASS" in text() and "log file: FAILED" in text() and "denied" in text()
 		del BANNERS[:]
@@ -1174,17 +777,17 @@ def test_log_file_failure_does_not_raise():
 
 def test_log_file_written_for_single_test():
 	W = setup()
-	fire_phaser_ab(W)
+	fire_torp_ab(W)
 	path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_stprobe_test_log2.txt")
 	if os.path.exists(path):
 		os.remove(path)
 	W.STP.g_sLogFile = path
 	try:
-		W.STP.Begin("MULTI_PHASER")
-		advance(W, 3.0)
+		W.STP.Begin("MULTI_TORP")
+		advance(W, 5.0)
 		assert "log file: written" in text()
 		long_line_check = open(path).read()
-		assert "=== STProbe MULTI_PHASER" in long_line_check and "w0 r:AB f:A" in long_line_check
+		assert "=== STProbe MULTI_TORP" in long_line_check and "w0 r:AB f:A" in long_line_check
 	finally:
 		if os.path.exists(path):
 			os.remove(path)
@@ -1216,6 +819,7 @@ def test_classify_verdict_weaponline():
 	lLines = STP_mod().WeaponLine({}, {0: (1, 1), 1: (1, 0), 2: (0, 1), 3: (0, 0)})
 	assert lLines == ["w0 r:AB f:-  w1 r:A f:-", "w2 r:B f:-  w3 r:- f:-"]
 	assert STP_mod().WeaponLine({}, {}) == []
+	assert STP_mod().WeaponLine({0: {"B": 1}}, {0: (1, "E")}) == ["w0 r:A? f:B"]
 
 
 _MOD = [None]
@@ -1229,6 +833,72 @@ def STP_mod():
 
 def W_classify(dSeen, dReach, iSimul):
 	return STP_mod().Classify(dSeen, dReach, iSimul)
+
+
+# --- ARCFORMULA -----------------------------------------------------------------------
+class ArcPulse(mock_app.Pulse):
+	"""A pulse weapon whose IsInArc is the box test (weapon at the origin, identity axes)."""
+	def IsInArc(self, p):
+		import math
+		if p.x <= 0.0:
+			return 0
+		aw = math.atan2(p.y, p.x)
+		ah = math.atan2(p.z, p.x)
+		return int(self.limits[0] <= aw <= self.limits[1] and self.limits[2] <= ah <= self.limits[3])
+
+
+def arc_world():
+	W = setup(lPhaser=[], lTorp=[])
+	W.App.Weapon_Cast = lambda o: (isinstance(o, mock_app.Pulse) and o) or None
+	W.App.PulseWeapon_Cast = lambda o: (isinstance(o, mock_app.Pulse) and o) or None
+	for n in ("Custom.Spaceframe.Modules.AutoFire",):
+		sys.modules[n] = types.ModuleType(n)
+	sys.modules["Custom.Spaceframe.Modules"].AutoFire = sys.modules["Custom.Spaceframe.Modules.AutoFire"]
+	S = mock_app.load_module("Modules/AutoFire/Solution.py", "Custom.Spaceframe.Modules.AutoFire.Solution")
+	sys.modules["Custom.Spaceframe.Modules.AutoFire"].Solution = S
+	W.arc = ArcPulse()
+	W.ship.groups[0] = FakeSystem("pulse", [W.arc])
+	return W
+
+
+def test_arcformula_registered_and_not_in_all():
+	W = setup()
+	assert "ARCFORMULA" in W.STP.TESTS and "ARCFORMULA" in W.STP.HINT and "ARCFORMULA" in W.STP.KINDS
+	assert "ARCFORMULA" not in W.STP.ALL_TESTS
+
+
+def test_arcformula_all_points_match():
+	W = arc_world()
+	W.STP.Begin("ARCFORMULA")
+	sLine = W.STP.g_dResults["ARCFORMULA"][1]
+	assert sLine.startswith("w0 candA: 12/12 match, candB: 12/12 match, W[-29,29] H[-29,29]deg"), sLine
+	assert "tgt depth A=" in sLine	# the selected target A is read
+
+
+def test_arcformula_asymmetric_limits():
+	W = arc_world()
+	W.arc.limits = (0.0, 1.0, -0.2, 0.2)
+	W.STP.Begin("ARCFORMULA")
+	sLine = W.STP.g_dResults["ARCFORMULA"][1]
+	assert "candA: 12/12 match" in sLine and "W[0,57] H[-11,11]deg" in sLine, sLine
+
+
+def test_arcformula_reports_a_wrong_candidate():
+	# The game's arc is around the weapon's own world point (A): candidate B
+	# puts the weapon 200 units to the side and disagrees.
+	W = arc_world()
+	W.ship.pos = mock_app.Point(0.0, 200.0, 0.0)
+	W.STP.Begin("ARCFORMULA")
+	sLine = W.STP.g_dResults["ARCFORMULA"][1]
+	assert "candA: 12/12 match" in sLine and "candB: 12/12 match" not in sLine, sLine
+	assert "miss(ours/game)" in sLine
+
+
+def test_arcformula_accessor_error_is_reported():
+	W = arc_world()
+	W.arc.limits = "raise"
+	W.STP.Begin("ARCFORMULA")
+	assert "ERR" in W.STP.g_dResults["ARCFORMULA"][1]
 
 
 def run():

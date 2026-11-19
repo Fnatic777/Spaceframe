@@ -1,87 +1,57 @@
 ###############################################################################
 #	STProbe.py
 #
-#	Spaceframe module, version 0.1 - THROWAWAY experiment.
+#	Spaceframe module, version 0.2 - throwaway in-game probe.
 #
-#	Answers, in game and on screen, whether the engine lets weapons of ONE
-#	weapon system fire at DIFFERENT targets at the same time. Key K selects
-#	a test, key O runs / aborts it; results are shown as banner lines.
-#	Spec: Spaceframe\docs\secondary-target-experiment-spec.md
-#	Delete the STProbe folder when the experiment is over.
+#	Validates, in game and on screen, torpedo behavior (target list, fired
+#	events, single fire, retarget, direct Fire) and the pulse arc formula
+#	AutoFire uses (ARCFORMULA). The multi-target questions it answered earlier
+#	are now handled by the SecondaryTarget module and the engine patch.
+#	Key K selects a test, key O runs / aborts it; results are shown as banner
+#	lines (and appended to a log file).
+#	Delete the STProbe folder when the validation is over.
 ###############################################################################
 import App
 import sys
 import string
+import math
 
 NAME = "STProbe"
-VERSION = "0.1"
+VERSION = "0.2"
 PKG = "Custom.Spaceframe.Modules.STProbe.STProbe"
 KEY_HANDLER = PKG + ".OnKeyboard"
-FIRE_HANDLER = PKG + ".OnManualFire"
 FIRED_HANDLER = PKG + ".OnWeaponFired"
 TORP_HANDLER = PKG + ".OnTorpedoEntered"
 
-TESTS = ("INFO", "MULTI_PHASER", "MULTI_TORP", "MULTI_PULSE", "ORDER",
-	"RELEASE_B", "MANUAL", "HOLD_ONE", "FIRE_ONE", "TORP_RETARGET", "SINGLEFIRE",
-	"SINGLEFIRE_PHASER", "SINGLEFIRE_PULSE", "SINGLEFIRE_TORP", "MANUAL_PROP0",
-	"ORDER_PROP0", "ORDER3", "SHARED", "ALL")
+TESTS = ("INFO", "MULTI_TORP", "FIRE_ONE", "TORP_RETARGET", "SINGLEFIRE_TORP",
+	"ARCFORMULA", "ALL")
 
-# What ALL runs, back to back (MANUAL* and TORP_RETARGET need the user).
-ALL_TESTS = ("INFO", "SHARED", "SINGLEFIRE", "SINGLEFIRE_TORP", "SINGLEFIRE_PULSE",
-	"MULTI_PHASER", "MULTI_TORP", "MULTI_PULSE", "ORDER", "ORDER_PROP0", "ORDER3",
-	"RELEASE_B", "HOLD_ONE", "FIRE_ONE")
+# What ALL runs, back to back (TORP_RETARGET needs the user).
+ALL_TESTS = ("INFO", "SINGLEFIRE_TORP", "MULTI_TORP", "FIRE_ONE")
 
 # Tests that are another test with a variation: name -> test whose phases run.
-BASES = {"SINGLEFIRE_PHASER": "SINGLEFIRE", "SINGLEFIRE_PULSE": "SINGLEFIRE",
-	"SINGLEFIRE_TORP": "SINGLEFIRE", "MANUAL_PROP0": "MANUAL", "ORDER_PROP0": "ORDER"}
-
-# Tests that lift single fire on the property for their whole run (restored at the end).
-LIFTED = {"MANUAL_PROP0": 1, "ORDER_PROP0": 1, "ORDER3": 1}
+BASES = {"SINGLEFIRE_TORP": "SINGLEFIRE"}
 
 LOG_FILE = "STProbe_log.txt"	# appended to in the game's working directory
 
 HINT = {
-	"SINGLEFIRE": "like MULTI_PHASER; tries to bypass single fire; state restored; press o, wait 10 s",
 	"ALL": "A ahead, B to the side; torps loaded; press o, wait 1 min; o aborts",
 	"INFO": "no setup needed; prints weapon info. Press o",
-	"MULTI_PHASER": "A ahead, B to the side; red alert; Auto Fire off; press o",
-	"MULTI_TORP": "A ahead, B to the side; torps loaded; press o",
-	"MULTI_PULSE": "pulse ship; A ahead, B to the side; press o",
-	"ORDER": "like MULTI_PHASER but B is added first; press o",
-	"RELEASE_B": "A ahead, B to the side; press o, wait 7 s",
-	"MANUAL": "press o, then HOLD fire (F / left mouse) 2 s and release",
-	"HOLD_ONE": "A ahead, B to the side; press o, wait 6 s",
+	"MULTI_TORP": "A ahead, B to the side; torps loaded; Auto Fire off; press o",
 	"FIRE_ONE": "torps (or pulse) ready; press o, wait 6 s",
 	"TORP_RETARGET": "press o, then FIRE a torpedo at A within 20 s",
-	"SINGLEFIRE_PHASER": "SINGLEFIRE on the phaser system; A ahead, B aside; press o, wait 10 s",
-	"SINGLEFIRE_PULSE": "SINGLEFIRE on the pulse system; A ahead, B aside; press o, wait 20 s",
 	"SINGLEFIRE_TORP": "SINGLEFIRE on torpedoes; torps loaded; A ahead, B aside; press o, wait 20 s",
-	"MANUAL_PROP0": "MANUAL with single fire lifted; press o, HOLD fire 2 s, release",
-	"ORDER_PROP0": "ORDER with single fire lifted; A ahead, B aside; press o",
-	"ORDER3": "3 enemies A,B,C; single fire lifted; lists A,B,C then C,B,A; press o",
-	"SHARED": "needs another ship of your class (enemy or friend) in the set; press o",
+	"ARCFORMULA": "pulse ship; optionally select a target; checks AutoFire's arc formula against IsInArc; press o",
 }
 
 # Weapon system kinds each test needs, in order of preference.
 KINDS = {
 	"INFO": (),
-	"MULTI_PHASER": ("phaser",),
 	"MULTI_TORP": ("torp",),
-	"MULTI_PULSE": ("pulse",),
-	"ORDER": ("phaser", "torp", "pulse"),
-	"RELEASE_B": ("phaser",),
-	"MANUAL": ("primary",),
-	"HOLD_ONE": ("phaser", "pulse"),
 	"FIRE_ONE": ("torp", "pulse"),
 	"TORP_RETARGET": (),
-	"SINGLEFIRE": ("phaser", "torp", "pulse"),
-	"SINGLEFIRE_PHASER": ("phaser",),
-	"SINGLEFIRE_PULSE": ("pulse",),
 	"SINGLEFIRE_TORP": ("torp",),
-	"MANUAL_PROP0": ("primary",),
-	"ORDER_PROP0": ("phaser", "torp", "pulse"),
-	"ORDER3": ("phaser", "torp", "pulse"),
-	"SHARED": ("phaser",),
+	"ARCFORMULA": ("pulse",),
 	"ALL": (),
 }
 
@@ -374,20 +344,6 @@ def GetAB(pShip):
 	return (pA, pB, "")
 
 
-def GetThird(pShip, pA, pB):
-	# C = the nearest enemy that is neither A nor B (None when there is none).
-	pC = None
-	fBest = 0.0
-	for pEnemy in GetEnemies(pShip):
-		iID = pEnemy.GetObjID()
-		if (iID != pA.GetObjID()) and (iID != pB.GetObjID()):
-			fDist = Distance(pShip, pEnemy)
-			if (pC == None) or (fDist < fBest):
-				pC = pEnemy
-				fBest = fDist
-	return pC
-
-
 def NewZero(dRun):
 	# A zero offset vector (made fresh each step, never kept).
 	tR = Call("TGPoint3", NewZeroRaw, ())
@@ -407,12 +363,6 @@ def StartArgs(pTarget, vZero):
 	if vZero == None:
 		return (pTarget,)
 	return (pTarget, vZero)
-
-
-def Fmt(tR):
-	if tR[0]:
-		return "ok " + str(tR[1])
-	return "ERR " + Short(tR[1], 28)
 
 
 ###############################################################################
@@ -435,8 +385,8 @@ def GroupList():
 
 
 def FindSystem(dRun, pShip, sKind):
-	# (group, system, kind) of the first group of that kind; "primary" = the
-	# primary group whatever it is. (None, None, "") when there is none.
+	# (group, system, kind) of the first group of that kind.
+	# (None, None, "") when there is none.
 	try:
 		lGroups = GroupList()
 	except:
@@ -445,10 +395,6 @@ def FindSystem(dRun, pShip, sKind):
 		pSystem = Do(dRun, pShip, "GetWeaponSystemGroup", (eGroup,), None)
 		if pSystem != None:
 			sFound = KindOf(pSystem)
-			if sKind == "primary":
-				if sFound == "":
-					sFound = "other"
-				return (eGroup, pSystem, sFound)
 			if sFound == sKind:
 				return (eGroup, pSystem, sFound)
 	return (None, None, "")
@@ -470,8 +416,6 @@ def GetWeapons(dRun, pSystem):
 
 
 def ReachOne(pWeapon, sKind, pTarget, vZero):
-	if sKind == "phaser":
-		return App.PhaserBank_Cast(pWeapon).CanHit(pTarget.GetWorldLocation())
 	if sKind == "torp":
 		return App.TorpedoTube_Cast(pWeapon).CanHit(pTarget.GetWorldLocation())
 	return App.PulseWeapon_Cast(pWeapon).CanHitTarget(pTarget, vZero)
@@ -497,8 +441,6 @@ def Code(iID, dRun):
 			return "A"
 		if iID == dRun["idB"]:
 			return "B"
-		if (dRun.get("idC") != None) and (iID == dRun["idC"]):
-			return "C"
 	except:
 		return "X"
 	return "X"
@@ -526,10 +468,7 @@ def Lookup(dRun):
 		Abort("ABORT: player ship changed")
 		return None
 	lOthers = []
-	lKeys = ["idA", "idB"]
-	if dRun.get("idC") != None:
-		lKeys.append("idC")
-	for sKey in lKeys:
+	for sKey in ("idA", "idB"):
 		pOther = None
 		try:
 			pOther = App.ShipClass_GetObjectByID(None, dRun[sKey])
@@ -596,15 +535,12 @@ def Verdict(dC):
 
 
 def WeaponLine(dSeen, dReach):
-	return WeaponLineN(dSeen, dReach, "AB")
-
-
-def WeaponLineN(dSeen, dReach, sLetters):
 	# "w0 r:AB f:A  w1 r:B f:B  w2 r:- f:-", over at most 2 lines. dReach[i] has
-	# one entry (1 / 0 / "E") per letter of sLetters (the targets A, B, C).
+	# one entry (1 / 0 / "E") for A and one for B.
+	sLetters = "AB"
 	lParts = []
 	for i in range(NumWeapons(dSeen, dReach)):
-		tReach = dReach.get(i, (0, 0, 0)[:len(sLetters)])
+		tReach = dReach.get(i, (0, 0))
 		sReach = ""
 		bError = 0
 		for n in range(len(sLetters)):
@@ -617,7 +553,7 @@ def WeaponLineN(dSeen, dReach, sLetters):
 		if sReach == "":
 			sReach = "-"
 		sFired = ""
-		for sCode in ("A", "B", "C", "X"):
+		for sCode in ("A", "B", "X"):
 			if SeenCount(dSeen, i, sCode) > 0:
 				sFired = sFired + sCode
 		if sFired == "":
@@ -706,18 +642,6 @@ def OnRun():
 	Begin(TESTS[g_iSel])
 
 
-def OnManualFire(pObject, pEvent):
-	try:
-		if (g_dRun != None) and (g_dRun["base"] == "MANUAL"):
-			ManualEvent(g_dRun, pEvent.GetBool())
-	except:
-		Log("Fire event error: " + ErrText())
-	try:
-		pObject.CallNextHandler(pEvent)
-	except:
-		pass
-
-
 def OnWeaponFired(pObject, pEvent):
 	try:
 		if g_dRun != None:
@@ -788,17 +712,6 @@ def Retarget(dRun, pEvent):
 	dRun["t"] = Now()
 
 
-def ManualEvent(dRun, iDown):
-	if iDown and (dRun["phase"] == 1):
-		dRun["notes"].append("press")
-		dRun["phase"] = 2
-		dRun["t"] = Now() + 0.5
-	elif (not iDown) and (dRun["phase"] == 3):
-		dRun["notes"].append("release")
-		dRun["phase"] = 4
-		dRun["t"] = Now() + 0.5
-
-
 ###############################################################################
 #	Run engine
 ###############################################################################
@@ -820,7 +733,7 @@ def Precheck(sName):
 		pass
 	pA = None
 	pB = None
-	if (sName == "INFO") or (sName == "SHARED"):
+	if (sName == "INFO") or (sName == "ARCFORMULA"):
 		try:
 			pTarget = App.ShipClass_Cast(pShip.GetTarget())
 			if IsLive(pTarget):
@@ -833,8 +746,6 @@ def Precheck(sName):
 			return (tAB[2], None, None, None, None, "")
 		pA = tAB[0]
 		pB = tAB[1]
-		if (sName == "ORDER3") and (GetThird(pShip, pA, pB) == None):
-			return ("no third enemy (C)", None, None, None, None, "")
 	eGroup = None
 	sKind = ""
 	lKinds = KINDS[sName]
@@ -855,20 +766,15 @@ def NewRun(sName, tPre):
 	pShip = tPre[1]
 	dRun = {"name": sName, "phase": 0, "ship": pShip.GetObjID(), "idA": None, "idB": None,
 		"group": tPre[4], "kind": tPre[5], "t": Now(), "seen": {}, "reach": {}, "fired": {},
-		"errors": [], "notes": [], "started": 0, "simul": 0, "names": [], "sample": 0,
-		"last": (0, 0, 0), "armed": 0, "lines": [], "w": None, "refire": None, "tOff": 0.0,
+		"errors": [], "started": 0, "simul": 0, "names": [], "sample": 0,
+		"last": (0, 0, 0), "armed": 0, "lines": [], "w": None,
 		"snaps": [], "orig": None, "chgProp": 0, "chgMode": 0, "restored": "ok", "rtext": "",
-		"short": "", "drv": None, "maxl": 4, "idC": None, "base": sName, "lift": 0,
-		"vstate": "", "reach3": {}, "pressB": None}
+		"short": "", "drv": None, "maxl": 4, "base": sName, "vstate": ""}
 	if BASES.has_key(sName):
 		dRun["base"] = BASES[sName]
-	if LIFTED.has_key(sName):
-		dRun["lift"] = 1
 	try:
 		dRun["idA"] = tPre[2].GetObjID()
 		dRun["idB"] = tPre[3].GetObjID()
-		if sName == "ORDER3":
-			dRun["idC"] = GetThird(pShip, tPre[2], tPre[3]).GetObjID()
 	except:
 		return None
 	return dRun
@@ -884,8 +790,8 @@ def Begin(sName):
 	if sName == "INFO":
 		RunInfo(pShip, tPre[2])
 		return
-	if sName == "SHARED":
-		RunShared(pShip, tPre[4])
+	if sName == "ARCFORMULA":
+		RunArc(pShip, tPre[2], tPre[4])
 		return
 	if sName == "ALL":
 		StartAll()
@@ -928,10 +834,6 @@ def Advance(dDrv):
 			lLines = InfoLines(tPre[1], tPre[2])
 			g_dResults["INFO"] = lLines
 			dDrv["done"].append((sName, "ok", lLines))
-		elif sName == "SHARED":
-			tShared = SharedLines(tPre[1], tPre[4])
-			g_dResults["SHARED"] = tShared[1]
-			dDrv["done"].append((sName, tShared[0], tShared[1]))
 		else:
 			dRun = NewRun(sName, tPre)
 			if dRun == None:
@@ -1029,8 +931,6 @@ def Sample(dRun, pShip):
 					iA = iA + 1
 				elif sCode == "B":
 					iB = iB + 1
-				if (dRun["w"] == i) and (dRun["refire"] == None):
-					dRun["refire"] = Now() - dRun["tOff"]
 	dRun["last"] = (iA, iB, iFiring)
 	if iA and iB:
 		dRun["simul"] = 1
@@ -1149,22 +1049,8 @@ def Finish(lLines):
 def RunPhase(dRun, pShip, pA, pB):
 	vZero = NewZero(dRun)
 	sName = dRun["base"]
-	if sName == "MULTI_PHASER":
-		PhaseMulti(dRun, pShip, pA, pB, vZero, 2, "")
-	elif sName == "MULTI_TORP":
-		PhaseMulti(dRun, pShip, pA, pB, vZero, 3, "")
-	elif sName == "MULTI_PULSE":
-		PhaseMulti(dRun, pShip, pA, pB, vZero, 4, "")
-	elif sName == "ORDER":
-		PhaseMulti(dRun, pShip, pA, pB, vZero, 5, dRun["name"] + "(B first)")
-	elif sName == "ORDER3":
-		PhaseOrder3(dRun, pShip, pA, pB, vZero)
-	elif sName == "RELEASE_B":
-		PhaseRelease(dRun, pShip, pA, pB, vZero)
-	elif sName == "MANUAL":
-		PhaseManual(dRun, pShip, pA, pB, vZero)
-	elif sName == "HOLD_ONE":
-		PhaseHold(dRun, pShip, pA, pB, vZero)
+	if sName == "MULTI_TORP":
+		PhaseMulti(dRun, pShip, pA, pB, vZero)
 	elif sName == "FIRE_ONE":
 		PhaseFire(dRun, pShip, pA, pB, vZero)
 	elif sName == "TORP_RETARGET":
@@ -1207,135 +1093,38 @@ def CacheWeapons(dRun, pShip, pA, pB, vZero):
 			dRun["reach"][i] = (Reach(dRun, pWeapon, dRun["kind"], pA, vZero), Reach(dRun, pWeapon, dRun["kind"], pB, vZero))
 
 
-def Snapshot(dRun, pShip, pA, pB):
-	# "A1 B1 onA2 onB1": in the target list, and weapons on each now.
-	pSystem = GetSystem(dRun, pShip)
-	if pSystem == None:
-		return "?"
-	return "A" + InList(dRun, pSystem, pA) + " B" + InList(dRun, pSystem, pB) + " onA" + str(dRun["last"][0]) + " onB" + str(dRun["last"][1])
-
-
 ###############################################################################
 #	Tests (each function handles every phase of its test)
 ###############################################################################
-def PhaseMulti(dRun, pShip, pA, pB, vZero, iNum, sTitle):
+def PhaseMulti(dRun, pShip, pA, pB, vZero):
 	if dRun["phase"] == 0:
 		CacheWeapons(dRun, pShip, pA, pB, vZero)
-		LiftProp(dRun, pShip)
-		if sTitle == "":
-			tIn = Multi(dRun, pShip, [pA, pB], vZero)
-		else:
-			tIn = Multi(dRun, pShip, [pB, pA], vZero)
+		tIn = Multi(dRun, pShip, [pA, pB], vZero)
 		if tIn == None:
 			return
 		dRun["in"] = tIn
-		if dRun["kind"] == "torp":
-			pSystem = GetSystem(dRun, pShip)
-			if pSystem != None:
-				dRun["ready"] = Do(dRun, Cast(dRun, "TorpedoSystem_Cast", pSystem), "GetNumReady", (), "?")
+		pSystem = GetSystem(dRun, pShip)
+		if pSystem != None:
+			dRun["ready"] = Do(dRun, Cast(dRun, "TorpedoSystem_Cast", pSystem), "GetNumReady", (), "?")
 		fWindow = g_fSample
-		if (dRun["kind"] != "phaser") and (fWindow < 4.0):
+		if fWindow < 4.0:
 			fWindow = 4.0
 		dRun["t"] = Now() + fWindow
 		dRun["phase"] = 1
 		dRun["sample"] = 1
 		return
-	dSeen = dRun["seen"]
-	if dRun["kind"] != "phaser":
-		dSeen = MergeSeen(dRun["seen"], dRun["fired"])
+	dSeen = MergeSeen(dRun["seen"], dRun["fired"])
 	dC = Classify(dSeen, dRun["reach"], dRun["simul"])
 	dRun["short"] = FirstWord(Verdict(dC))
 	lLines = []
 	sPick = "both-reach picked A:" + str(len(dC["bothPickA"])) + " B:" + str(len(dC["bothPickB"]))
-	if iNum == 5:
-		lLines.append("T5 " + sTitle + " " + sPick)
-		lLines.append("verdict " + Verdict(dC) + " " + dRun["vstate"])
-	else:
-		sHead = "T" + str(iNum) + " " + string.upper(dRun["kind"]) + " " + Verdict(dC) + " list A:" + dRun["in"][0] + " B:" + dRun["in"][1]
-		sHead = sHead + " onA:" + str(len(dC["onA"])) + " onB:" + str(len(dC["onB"])) + " simul:" + str(dC["simul"])
-		if dRun["kind"] == "torp":
-			sHead = sHead + " rdy:" + str(dRun.get("ready", "?"))
-		lLines.append(sHead)
-		lLines.append(sPick + "  onlyB fired:" + str(len(dC["onlyBFired"])) + "/" + str(len(dC["onlyB"])))
+	sHead = "T3 " + string.upper(dRun["kind"]) + " " + Verdict(dC) + " list A:" + dRun["in"][0] + " B:" + dRun["in"][1]
+	sHead = sHead + " onA:" + str(len(dC["onA"])) + " onB:" + str(len(dC["onB"])) + " simul:" + str(dC["simul"])
+	sHead = sHead + " rdy:" + str(dRun.get("ready", "?"))
+	lLines.append(sHead)
+	lLines.append(sPick + "  onlyB fired:" + str(len(dC["onlyBFired"])) + "/" + str(len(dC["onlyB"])))
 	lLines = lLines + WeaponLine(dSeen, dRun["reach"])
 	Finish(lLines)
-
-
-def CacheWeapons3(dRun, pShip, pA, pB, pC, vZero):
-	# reach3[i] = (reaches A, reaches B, reaches C) for every weapon of the group.
-	CacheWeapons(dRun, pShip, pA, pB, vZero)
-	pSystem = GetSystem(dRun, pShip)
-	if pSystem == None:
-		return
-	lWeapons = GetWeapons(dRun, pSystem)
-	for i in range(len(lWeapons)):
-		tAB = dRun["reach"].get(i, ("E", "E"))
-		sC = "E"
-		if lWeapons[i] != None:
-			sC = Reach(dRun, lWeapons[i], dRun["kind"], pC, vZero)
-		dRun["reach3"][i] = (tAB[0], tAB[1], sC)
-
-
-def SeenOf(dRun):
-	# Weapon -> target codes seen so far (fired events too for torpedoes and pulses).
-	if dRun["kind"] != "phaser":
-		return MergeSeen(dRun["seen"], dRun["fired"])
-	return MergeSeen(dRun["seen"], {})
-
-
-def KeptLine(dSeen, dReach3, iFirst, sFirst, sTitle):
-	# Of the weapons that reach the first-listed target, how many fired at it.
-	iReach = 0
-	iKept = 0
-	for i in range(NumWeapons(dSeen, dReach3)):
-		if dReach3.get(i, (0, 0, 0))[iFirst] == 1:
-			iReach = iReach + 1
-			if SeenCount(dSeen, i, sFirst) > 0:
-				iKept = iKept + 1
-	return sTitle + ": " + sFirst + " first, kept by " + str(iKept) + " of " + str(iReach) + " that reach it"
-
-
-def PhaseOrder3(dRun, pShip, pA, pB, vZero):
-	# List A,B,C then C,B,A; per weapon what it reaches (r:) and fired at (f:).
-	pC = None
-	try:
-		pC = App.ShipClass_GetObjectByID(None, dRun["idC"])
-	except:
-		pC = None
-	if Gone(pC):
-		Abort("ABORT: C gone")
-		return
-	iPhase = dRun["phase"]
-	if iPhase == 0:
-		CacheWeapons3(dRun, pShip, pA, pB, pC, vZero)
-		LiftProp(dRun, pShip)
-		lOrder = [pA, pB, pC]
-	elif iPhase == 1:
-		dRun["res3"] = SeenOf(dRun)
-		lOrder = [pC, pB, pA]
-	else:
-		dSeen1 = dRun["res3"]
-		dSeen2 = SeenOf(dRun)
-		lLines = [KeptLine(dSeen1, dRun["reach3"], 0, "A", "T11 list A,B,C")]
-		lLines = lLines + WeaponLineN(dSeen1, dRun["reach3"], "ABC")
-		lLines.append(KeptLine(dSeen2, dRun["reach3"], 2, "C", "list C,B,A"))
-		lLines = lLines + WeaponLineN(dSeen2, dRun["reach3"], "ABC")
-		dRun["short"] = "done"
-		dRun["maxl"] = 6
-		Finish(lLines)
-		return
-	dRun["seen"] = {}
-	dRun["fired"] = {}
-	dRun["simul"] = 0
-	dRun["last"] = (0, 0, 0)
-	if Multi(dRun, pShip, lOrder, vZero) == None:
-		return
-	fWindow = g_fSample
-	if (dRun["kind"] != "phaser") and (fWindow < 4.0):
-		fWindow = 4.0
-	dRun["t"] = Now() + fWindow
-	dRun["phase"] = iPhase + 1
-	dRun["sample"] = 1
 
 
 def FirstWord(s):
@@ -1408,19 +1197,6 @@ def RestoreState(dRun, pSystem):
 		dRun["rtext"] = StateText(tNow)
 
 
-def LiftProp(dRun, pShip):
-	# For the *_PROP0 tests and ORDER3: single fire is lifted on the property for
-	# the whole run; Release (Finish / Abort) puts it back and checks it.
-	if not dRun["lift"]:
-		return
-	pSystem = GetSystem(dRun, pShip)
-	if pSystem == None:
-		return
-	dRun["orig"] = ReadState(dRun, pSystem)
-	ApplyVariant(dRun, pSystem, ("prop0", "prop", 0))
-	dRun["vstate"] = "lifted " + StateText(ReadState(dRun, pSystem))
-
-
 def StartVariant(dRun, pShip, pA, pB, vZero, pSystem):
 	dRun["seen"] = {}
 	dRun["fired"] = {}
@@ -1432,7 +1208,7 @@ def StartVariant(dRun, pShip, pA, pB, vZero, pSystem):
 	if Multi(dRun, pShip, [pA, pB], vZero) == None:
 		return
 	fWindow = g_fSample
-	if (dRun["kind"] != "phaser") and (fWindow < 4.0):
+	if fWindow < 4.0:
 		fWindow = 4.0
 	dRun["t"] = Now() + fWindow
 	dRun["phase"] = 1
@@ -1456,9 +1232,7 @@ def PhaseSingle(dRun, pShip, pA, pB, vZero):
 		StartVariant(dRun, pShip, pA, pB, vZero, pSystem)
 		return
 	tVar = dRun["variants"][dRun["var"]]
-	dSeen = dRun["seen"]
-	if dRun["kind"] != "phaser":
-		dSeen = MergeSeen(dRun["seen"], dRun["fired"])
+	dSeen = MergeSeen(dRun["seen"], dRun["fired"])
 	dC = Classify(dSeen, dRun["reach"], dRun["simul"])
 	sVerdict = Verdict(dC)
 	sLine = tVar[0] + " " + dRun["vstate"] + " " + sVerdict + " simul:" + str(dC["simul"])
@@ -1474,148 +1248,6 @@ def PhaseSingle(dRun, pShip, pA, pB, vZero):
 		return
 	dRun["short"] = dRun["kind"] + " " + string.join(dRun["vshort"], " ")
 	Finish(dRun["res"])
-
-
-def PhaseRelease(dRun, pShip, pA, pB, vZero):
-	iPhase = dRun["phase"]
-	if iPhase == 0:
-		CacheWeapons(dRun, pShip, pA, pB, vZero)
-		if Multi(dRun, pShip, [pA, pB], vZero) == None:
-			return
-		dRun["sample"] = 1
-		dRun["t"] = Now() + 2.0
-		dRun["phase"] = 1
-		return
-	pSystem = GetSystem(dRun, pShip)
-	if pSystem == None:
-		Abort("ABORT: weapon system gone")
-		return
-	if iPhase == 1:
-		dRun["snaps"].append(Snapshot(dRun, pShip, pA, pB))
-		Do(dRun, pSystem, "StopFiringAtTarget", (pB,), None)
-		dRun["t"] = Now() + 2.0
-		dRun["phase"] = 2
-	elif iPhase == 2:
-		dRun["snaps"].append(Snapshot(dRun, pShip, pA, pB))
-		Do(dRun, pSystem, "StartFiring", StartArgs(pB, vZero), None)
-		Do(dRun, pSystem, "SetForceUpdate", (1,), None)
-		dRun["t"] = Now() + 1.0
-		dRun["phase"] = 3
-	elif iPhase == 3:
-		Do(dRun, pSystem, "RemoveFromTargetList", (pB,), None)
-		dRun["t"] = Now() + 2.0
-		dRun["phase"] = 4
-	else:
-		dRun["snaps"].append(Snapshot(dRun, pShip, pA, pB))
-		Finish(["T6 RELEASE_B  S1 (both) " + dRun["snaps"][0], "S2 (after StopFiringAtTarget B) " + dRun["snaps"][1], "S3 (after RemoveFromTargetList B) " + dRun["snaps"][2]])
-
-
-def PhaseManual(dRun, pShip, pA, pB, vZero):
-	iPhase = dRun["phase"]
-	if iPhase == 0:
-		CacheWeapons(dRun, pShip, pA, pB, vZero)
-		LiftProp(dRun, pShip)
-		if Multi(dRun, pShip, [pA, pB], vZero) == None:
-			return
-		Show(["HOLD fire (F / left mouse) 2 s, then RELEASE"])
-		dRun["sample"] = 1
-		dRun["t"] = Now() + TIMEOUT
-		dRun["phase"] = 1
-		return
-	if iPhase == 1:
-		Finish(["T7 MANUAL: no press seen"])
-		return
-	pSystem = GetSystem(dRun, pShip)
-	if pSystem == None:
-		Abort("ABORT: weapon system gone")
-		return
-	if iPhase == 2:
-		dRun["snaps"].append("press: " + Snapshot(dRun, pShip, pA, pB))
-		dRun["pressB"] = dRun["last"][1]
-		dRun["t"] = Now() + TIMEOUT
-		dRun["phase"] = 3
-	elif iPhase == 3:
-		Finish(["T7 MANUAL " + string.join(dRun["snaps"], " | "), "no release seen"])
-	elif iPhase == 4:
-		dRun["snaps"].append("release: " + Snapshot(dRun, pShip, pA, pB) + " firing" + str(dRun["last"][2]))
-		Do(dRun, pSystem, "StartFiring", StartArgs(pB, vZero), None)
-		Do(dRun, pSystem, "SetForceUpdate", (1,), None)
-		dRun["started"] = 1
-		dRun["t"] = Now() + 2.0
-		dRun["phase"] = 5
-	else:
-		dRun["snaps"].append("B alone: onB" + str(dRun["last"][1]))
-		lLines = ["T7 " + dRun["name"] + " " + dRun["snaps"][0], dRun["snaps"][1], dRun["snaps"][2]]
-		if dRun["lift"]:
-			sGets = "no"
-			if dRun["pressB"]:
-				sGets = "yes"
-			dRun["short"] = "B gets fire:" + sGets
-			lLines.insert(0, "key held, single fire lifted: B gets fire: " + sGets + " (onB " + str(dRun["pressB"]) + ")")
-			dRun["maxl"] = 5
-		Finish(lLines)
-
-
-def WeaponIndex(dRun, sCode):
-	# First weapon seen firing at that code, or None.
-	for i in range(len(dRun["names"])):
-		if SeenCount(dRun["seen"], i, sCode) > 0:
-			return i
-	return None
-
-
-def HoldResult(dRun, sWhat):
-	if dRun["refire"] == None:
-		return sWhat + ": stayed off"
-	return sWhat + ": off " + Short(dRun["refire"], 4) + "s then refired"
-
-
-def PhaseHold(dRun, pShip, pA, pB, vZero):
-	iPhase = dRun["phase"]
-	if iPhase == 0:
-		CacheWeapons(dRun, pShip, pA, pB, vZero)
-		if Multi(dRun, pShip, [pA, pB], vZero) == None:
-			return
-		dRun["sample"] = 1
-		dRun["t"] = Now() + 2.0
-		dRun["phase"] = 1
-		return
-	pSystem = GetSystem(dRun, pShip)
-	if pSystem == None:
-		Abort("ABORT: weapon system gone")
-		return
-	pWeapon = None
-	if dRun["w"] != None:
-		lWeapons = GetWeapons(dRun, pSystem)
-		if dRun["w"] < len(lWeapons):
-			pWeapon = lWeapons[dRun["w"]]
-	if iPhase == 1:
-		iW = WeaponIndex(dRun, "B")
-		if iW == None:
-			iW = WeaponIndex(dRun, "A")
-		if iW == None:
-			Finish(["T8 HOLD_ONE: no weapon was firing"])
-			return
-		dRun["w"] = iW
-		lWeapons = GetWeapons(dRun, pSystem)
-		if lWeapons[iW] != None:
-			Do(dRun, lWeapons[iW], "StopFiring", (), None)
-		dRun["tOff"] = Now()
-		dRun["refire"] = None
-		dRun["t"] = Now() + 2.0
-		dRun["phase"] = 2
-	elif iPhase == 2:
-		dRun["snaps"].append(HoldResult(dRun, "StopFiring"))
-		dRun["snaps"].append("others A" + str(dRun["last"][0]) + " B" + str(dRun["last"][1]))
-		if pWeapon != None:
-			Do(dRun, pWeapon, "SetFiring", (0,), None)
-		dRun["tOff"] = Now()
-		dRun["refire"] = None
-		dRun["t"] = Now() + 2.0
-		dRun["phase"] = 3
-	else:
-		sOne = "w" + str(dRun["w"]) + " " + dRun["snaps"][0] + " | " + HoldResult(dRun, "SetFiring(0)")
-		Finish(["T8 " + sOne, dRun["snaps"][1] + " | end A" + str(dRun["last"][0]) + " B" + str(dRun["last"][1])])
 
 
 def ReadyWeapon(dRun, pSystem, iAfter):
@@ -1713,7 +1345,7 @@ def PhaseRetarget(dRun):
 
 
 def RunInfo(pShip, pA):
-	# T1: no firing, only questions; shown at once.
+	# INFO: no firing, only questions; shown at once.
 	lLines = InfoLines(pShip, pA)
 	g_dResults["INFO"] = lLines
 	sLog = WriteLog("INFO", lLines)
@@ -1795,119 +1427,144 @@ def ReachLine(dTmp, sKind, lWeapons, sCast, lForms):
 	return sKind + " reach A: " + string.join(lParts, " | ")
 
 
-def ClassOf(pShip):
-	# The ship class as the last part of its script name ("" when unreadable).
+###############################################################################
+#	ARCFORMULA: does AutoFire's pulse arc formula (Solution.ArcDepth) agree
+#	with the game's own PulseWeapon.IsInArc? No firing, answered at once.
+###############################################################################
+def GetArcSolution():
+	import Custom.Spaceframe.Modules.AutoFire.Solution
+	return Custom.Spaceframe.Modules.AutoFire.Solution
+
+
+def ArcDistance():
+	# 5 km in world units.
 	try:
-		sScript = pShip.GetScript()
-		if sScript:
-			lParts = string.split(sScript, ".")
-			return lParts[-1]
+		return App.g_kUtopiaModule.ConvertKilometersToGameUnits(5.0)
 	except:
-		pass
-	return ""
+		return 5.0 / 0.175
 
 
-def GetFriends(pShip):
-	# Live ships of the friendly group in the player's set (group API as for the
-	# enemies; unconfirmed for friendlies: an error gives an empty list).
-	lFriends = []
+def ArcPoint(S, pShip, pWeapon, sMode, tAxes, fForward, fRight, fUp, fDist):
+	# The world point at distance fDist from the weapon (as candidate sMode
+	# places it) along D = fForward * Fwd + fRight * Right + fUp * Up.
+	vD = S.NewPoint(tAxes[0])
+	vD.Scale(fForward)
+	vR = S.NewPoint(tAxes[1])
+	vR.Scale(fRight)
+	vD.Add(vR)
+	vU = S.NewPoint(tAxes[2])
+	vU.Scale(fUp)
+	vD.Add(vU)
+	fLen = vD.Length()
+	if fLen <= 0.0:
+		fLen = 1.0
+	vD.Scale(fDist / fLen)
+	vPoint = S.WeaponPosition(pShip, pWeapon, sMode)
+	vPoint.Add(vD)
+	return vPoint
+
+
+def ArcSpecs(tLim):
+	# (label, forward, right, up) of the probe points: just inside and just
+	# outside every limit, the centre, a corner, behind, and df = 0.
+	fWm = (tLim[0] + tLim[1]) / 2.0
+	fHm = (tLim[2] + tLim[3]) / 2.0
+	lAngles = (("w-in", tLim[0] + 0.02, fHm), ("w+in", tLim[1] - 0.02, fHm),
+		("w-out", tLim[0] - 0.02, fHm), ("w+out", tLim[1] + 0.02, fHm),
+		("h-in", fWm, tLim[2] + 0.02), ("h+in", fWm, tLim[3] - 0.02),
+		("h-out", fWm, tLim[2] - 0.02), ("h+out", fWm, tLim[3] + 0.02),
+		("mid", fWm, fHm), ("corner", tLim[0] + 0.02, tLim[2] + 0.02))
+	lSpecs = []
+	for tA in lAngles:
+		if (abs(tA[1]) < 1.5) and (abs(tA[2]) < 1.5):
+			lSpecs.append((tA[0], 1.0, math.tan(tA[1]), math.tan(tA[2])))
+	lSpecs.append(("behind", -1.0, 0.0, 0.0))
+	lSpecs.append(("df0", 0.0, 1.0, 0.0))
+	return lSpecs
+
+
+def ArcDeg(f):
+	return "%.0f" % (f * 180.0 / App.PI)
+
+
+def ArcNum(f):
+	if f == None:
+		return "E"
+	if f >= 99.0:
+		return "behind"
+	return "%.2f" % f
+
+
+def ArcWeaponLine(S, dTmp, pShip, pWeapon, i, pA):
+	tLim = S.ArcLimits(pWeapon)
+	tAxes = S.ArcAxes(pShip, pWeapon)
+	fDist = ArcDistance()
+	lSpecs = ArcSpecs(tLim)
+	lParts = []
+	lMiss = []
+	for sMode in ("A", "B"):
+		iMatch = 0
+		for n in range(len(lSpecs)):
+			tSpec = lSpecs[n]
+			fDepth = None
+			iGame = None
+			try:
+				# The points of this candidate: ours and the game's answer for each.
+				vPoint = ArcPoint(S, pShip, pWeapon, sMode, tAxes, tSpec[1], tSpec[2], tSpec[3], fDist)
+				fDepth = S.ArcDepth(pShip, pWeapon, vPoint, sMode)
+				tR = CallM("IsInArc", pWeapon, "IsInArc", (vPoint,))
+				if tR[0]:
+					iGame = int(tR[1] != 0)
+				else:
+					AddError(dTmp, "IsInArc " + tR[1])
+			except:
+				AddError(dTmp, "ArcDepth " + ErrText())
+			if (fDepth != None) and (iGame != None) and (int(fDepth <= 1.0) == iGame):
+				iMatch = iMatch + 1
+			else:
+				lMiss.append(sMode + ":" + tSpec[0] + "=" + ArcNum(fDepth) + "/" + str(iGame))
+		lParts.append("cand" + sMode + ": " + str(iMatch) + "/" + str(len(lSpecs)) + " match")
+	sLine = "w" + str(i) + " " + string.join(lParts, ", ") + ", W[" + ArcDeg(tLim[0]) + "," + ArcDeg(tLim[1]) + "] H[" + ArcDeg(tLim[2]) + "," + ArcDeg(tLim[3]) + "]deg"
+	if pA != None:
+		vLoc = Do(dTmp, pA, "GetWorldLocation", (), None)
+		if vLoc != None:
+			sLine = sLine + ", tgt depth A=" + ArcNum(S.ArcDepth(pShip, pWeapon, vLoc, "A")) + " B=" + ArcNum(S.ArcDepth(pShip, pWeapon, vLoc, "B"))
+	if len(lMiss) > 0:
+		sLine = sLine + " | miss(ours/game) " + string.join(lMiss[:6], " ")
+	return sLine
+
+
+def ArcLines(pShip, pA, eGroup):
 	try:
-		pGroup = GetMission().GetFriendlyGroup()
-		for pObject in pGroup.GetActiveObjectTupleInSet(pShip.GetContainingSet()):
-			pFriend = App.ShipClass_Cast(pObject)
-			if IsLive(pFriend):
-				lFriends.append(pFriend)
+		S = GetArcSolution()
 	except:
-		pass
-	return lFriends
+		return ["ARCFORMULA: AutoFire.Solution not importable: " + ErrText()]
+	dTmp = {"errors": [], "idA": None, "idB": None}
+	pSystem = Do(dTmp, pShip, "GetWeaponSystemGroup", (eGroup,), None)
+	lLines = ["ARCFORMULA pulse arc, 12 points at 5 km, default weapon position " + str(S.WEAPON_POSITION)]
+	if pA == None:
+		lLines.append("no target selected: only the points are checked")
+	lWeapons = GetWeapons(dTmp, pSystem)
+	for i in range(len(lWeapons)):
+		pWeapon = None
+		if lWeapons[i] != None:
+			pWeapon = Cast(dTmp, "PulseWeapon_Cast", lWeapons[i])
+		if pWeapon == None:
+			lLines.append("w" + str(i) + " E: not a PulseWeapon")
+		else:
+			try:
+				lLines.append(ArcWeaponLine(S, dTmp, pShip, pWeapon, i, pA))
+			except:
+				lLines.append("w" + str(i) + " ERR " + Short(ErrText(), 60))
+	for sError in dTmp["errors"][:2]:
+		lLines.append("ERR " + Short(sError, 60))
+	return lLines
 
 
-def FindSameClass(pShip, sClass):
-	# One live ship (enemy first, then friendly) of the same class as pShip.
-	for pOther in GetEnemies(pShip) + GetFriends(pShip):
-		if (pOther.GetObjID() != pShip.GetObjID()) and (ClassOf(pOther) == sClass):
-			return pOther
-	return None
-
-
-def OtherSingle(dRun, iID):
-	# IsSingleFire of another ship's phaser system, looked up fresh by ID:
-	# the property's value, else the system's; "?" when unreadable.
-	pOther = None
-	try:
-		pOther = App.ShipClass_GetObjectByID(None, iID)
-	except:
-		pOther = None
-	if Gone(pOther):
-		return "?"
-	pSystem = FindSystem(dRun, pOther, "phaser")[1]
-	if pSystem == None:
-		return "?"
-	tState = ReadState(dRun, pSystem)
-	if tState[2] != "?":
-		return tState[2]
-	return tState[0]
-
-
-def SharedLines(pShip, eGroup):
-	# (short verdict, banner lines). Does the player's single-fire PROPERTY change
-	# another ship of the same class? The player's value is flipped (0 stays
-	# testable: it is set to 1 when it was 0) and restored before returning.
-	dMini = {"errors": [], "ship": pShip.GetObjID(), "group": eGroup, "started": 0, "chgProp": 0,
-		"chgMode": 0, "orig": None, "restored": "ok", "rtext": "", "idA": None, "idB": None, "idC": None}
-	pSystem = GetSystem(dMini, pShip)
-	if pSystem == None:
-		return ("unknown", ["shared: unknown: no phaser system"])
-	tOrig = ReadState(dMini, pSystem)
-	sClass = ClassOf(pShip)
-	if sClass == "":
-		return ("unknown", ["shared: unknown: ship class unreadable (GetScript)"])
-	pOther = FindSameClass(pShip, sClass)
-	if pOther == None:
-		return ("unknown", ["shared: unknown: no other ship of the class", "class " + sClass + ", player single (property) " + str(tOrig[2])])
-	iOther = pOther.GetObjID()
-	sBefore = OtherSingle(dMini, iOther)
-	if tOrig[2] == "?":
-		return ("unknown", ["shared: unknown: property unreadable", "class " + sClass])
-	iNew = 0
-	if tOrig[2] == 0:
-		iNew = 1
-	sAfter = "?"
-	sPlayer = "?"
-	dMini["orig"] = tOrig
-	try:
-		ApplyVariant(dMini, pSystem, ("shared", "prop", iNew))
-		sPlayer = ReadState(dMini, pSystem)[2]
-		sAfter = OtherSingle(dMini, iOther)
-	except:
-		AddError(dMini, "shared " + ErrText())
-	try:
-		Release(dMini)
-	except:
-		AddError(dMini, "release " + ErrText())
-	sVerdict = "unknown"
-	sWhy = ""
-	if (sBefore == "?") or (sAfter == "?"):
-		sWhy = ": other ship unreadable"
-	elif sPlayer != iNew:
-		sWhy = ": player change did not apply"
-	elif sBefore != sAfter:
-		sVerdict = "yes"
-	else:
-		sVerdict = "no"
-	lLines = ["shared: " + sVerdict + sWhy + " (other ship single " + str(sBefore) + "/" + str(sAfter) + ")"]
-	lLines.append("player single (property) " + str(tOrig[2]) + " -> " + str(sPlayer) + ", class " + sClass)
-	lLines.append(RestoreLine(dMini))
-	for sError in dMini["errors"][:2]:
-		lLines.append("ERR " + sError)
-	return (sVerdict, lLines)
-
-
-def RunShared(pShip, eGroup):
-	# SHARED: no firing, answered at once.
-	lLines = SharedLines(pShip, eGroup)[1]
-	g_dResults["SHARED"] = lLines
-	sLog = WriteLog("SHARED", lLines)
+def RunArc(pShip, pA, eGroup):
+	lLines = ArcLines(pShip, pA, eGroup)
+	g_dResults["ARCFORMULA"] = lLines
+	sLog = WriteLog("ARCFORMULA", lLines)
 	Show(lLines[:MAX_LINES - 1] + [sLog])
 
 
@@ -1917,9 +1574,7 @@ def RunShared(pShip, eGroup):
 def GetHandlerEvents():
 	# (event type, handler) pairs registered on the mission.
 	lEvents = []
-	for tEntry in (("ET_INPUT_FIRE_PRIMARY", FIRE_HANDLER), ("ET_INPUT_FIRE_SECONDARY", FIRE_HANDLER),
-		("ET_INPUT_FIRE_TERTIARY", FIRE_HANDLER), ("ET_WEAPON_FIRED", FIRED_HANDLER),
-		("ET_TORPEDO_ENTERED_SET", TORP_HANDLER)):
+	for tEntry in (("ET_WEAPON_FIRED", FIRED_HANDLER), ("ET_TORPEDO_ENTERED_SET", TORP_HANDLER)):
 		eType = getattr(App, tEntry[0], None)
 		if eType != None:
 			lEvents.append((eType, tEntry[1]))
