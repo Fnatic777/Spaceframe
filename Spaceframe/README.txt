@@ -203,32 +203,9 @@ Only for the player's ship, and only if it has "SecondaryTarget" in Ships.py.
 - Weapons (Ships.py number or Config): 1 phasers, 2 torpedoes, 4 pulse
   weapons. Torpedoes are not active yet (phase 2): the bit is accepted but
   does nothing for now.
-- PhaserPerTarget (0, experimental): while single fire is lifted, each target (your main
-  target included) is fired on by at most one phaser bank at a time. The
-  banks that reach the main target all stay available to it but take turns;
-  free banks do the same for their secondary targets. The game's single fire
-  applied per target instead of per ship. Pulse weapons are not affected.
-  0 = no limit (default). 1 is experimental: held banks are stopped with
-  StopFiring, the game restarts them about 0.25 s later, so beams may flicker.
-  The holds are renewed by a second, faster timer (LimitInterval) that runs
-  only while a phaser group is lifted.
-- LimitInterval (0.05 s, minimum 0.02): seconds between those fast checks.
-  Lower = less flicker; the game cannot go below one frame and very low
-  values may cost frames per second (try 0.03 or 0.02).
-- HoldMode (0, experimental): 0 = a held bank gets StopFiring only. 1 = StopFiring
-  and then SetFiring(0): OBSOLETE, it does the same as 0.
-  2 = experimental: StopFiring, then the bank's MinFiringCharge is raised above
-  its maximum charge, so the game cannot refire it (no flicker; the bank keeps
-  recharging). The original value is written back when the bank is released
-  (kept bank, target gone, ship change, etc.); it does not use the fast timer.
-  If the battle ends while a bank is held it is not restored (the ships are
-  destroyed): restart the battle.
-- HoldHysteresis (1.0 s) and HoldSafety (1): HoldMode 2 only. Minimum time
-  between changes of a bank; and cleanup of records of ships that no longer exist.
 Settings: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
 - Weapons (7), Interval (0.2 s), MaxCandidates (4), SecondaryRange (100),
-  SecondaryTorpedoMinSolution (70, for phase 2), PhaserPerTarget (0), LimitInterval (0.05),
-  HoldMode (0), HoldHysteresis (1.0), HoldSafety (1), Debug (0). Read once when a battle starts.
+  SecondaryTorpedoMinSolution (70, for phase 2), Debug (0). Read once when a battle starts.
 
 Which ship name to use
 ----------------------
@@ -484,33 +461,9 @@ las armas que lo alcanzan. Solo para la nave del jugador, y solo si tiene
 - Weapons (numero de Ships.py o Config): 1 phasers, 2 torpedos, 4 armas de
   pulso. Los torpedos todavia no estan activos (fase 2): el bit se acepta
   pero por ahora no hace nada.
-- PhaserPerTarget (0, experimental): mientras el single fire esta quitado, cada objetivo (el
-  principal incluido) recibe fuego de como maximo un banco de phasers a la
-  vez. Los bancos que alcanzan el objetivo principal quedan todos disponibles
-  para el, pero disparan por turnos; los bancos libres hacen lo mismo con sus
-  objetivos secundarios. Es el single fire del juego aplicado por objetivo y
-  no por nave. Las armas de pulso no se ven afectadas. 0 = sin limite (por
-  defecto). 1 es experimental: los bancos retenidos se paran con StopFiring y
-  el juego los reinicia unos 0,25 s despues, asi que los rayos pueden parpadear.
-  Las retenciones se renuevan con un segundo temporizador mas rapido
-  (LimitInterval) que solo corre mientras un grupo de phasers esta liberado.
-- LimitInterval (0,05 s, minimo 0,02): segundos entre esas revisiones rapidas.
-  Menos = menos parpadeo; el juego no puede bajar de un fotograma y valores
-  muy bajos pueden costar fps (prueba 0,03 o 0,02).
-- HoldMode (0, experimental): 0 = un banco retenido recibe solo StopFiring.
-  1 = StopFiring y despues SetFiring(0): OBSOLETO, hace lo mismo que 0.
-  2 = experimental: StopFiring y despues se sube el MinFiringCharge del banco
-  por encima de su carga maxima, asi el juego no puede volver a dispararlo
-  (sin parpadeo; el banco sigue cargando). El valor original se restaura al
-  liberar el banco (banco principal, objetivo perdido, cambio de nave, etc.);
-  no usa el temporizador rapido. Si la batalla termina con un banco retenido,
-  no se restaura (las naves se destruyen): reinicia la batalla.
-- HoldHysteresis (1,0 s) y HoldSafety (1): solo para HoldMode 2. Tiempo minimo
-  entre cambios de un banco; y limpieza de registros de naves que ya no existen.
 Configuracion: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
 - Weapons (7), Interval (0,2 s), MaxCandidates (4), SecondaryRange (100),
-  SecondaryTorpedoMinSolution (70, para la fase 2), PhaserPerTarget (0), LimitInterval (0,05),
-  HoldMode (0), HoldHysteresis (1,0), HoldSafety (1), Debug (0). Se leen una vez al empezar la batalla.
+  SecondaryTorpedoMinSolution (70, para la fase 2), Debug (0). Se leen una vez al empezar la batalla.
 
 Que nombre de nave usar
 -----------------------
@@ -760,33 +713,9 @@ que o alcancam. So para a nave do jogador, e so se ela tiver
 - Weapons (numero do Ships.py ou Config): 1 phasers, 2 torpedos, 4 armas de
   pulso. Os torpedos ainda nao estao ativos (fase 2): o bit e aceito mas por
   enquanto nao faz nada.
-- PhaserPerTarget (0, experimental): enquanto o single fire esta retirado, cada alvo (o
-  principal incluido) recebe fogo de no maximo um banco de phasers por vez.
-  Os bancos que alcancam o alvo principal ficam todos disponiveis para ele,
-  mas atiram em revezamento; os bancos livres fazem o mesmo com seus alvos
-  secundarios. E o single fire do jogo aplicado por alvo e nao por nave. As
-  armas de pulso nao sao afetadas. 0 = sem limite (padrao).
-  1 e experimental: os bancos retidos sao parados com StopFiring e o jogo os
-  reinicia cerca de 0,25 s depois, entao os raios podem piscar.
-  As retencoes sao renovadas por um segundo temporizador mais rapido
-  (LimitInterval) que so roda enquanto um grupo de phasers esta liberado.
-- LimitInterval (0,05 s, minimo 0,02): segundos entre essas verificacoes rapidas.
-  Menos = menos piscar; o jogo nao pode descer de um quadro e valores muito
-  baixos podem custar fps (tente 0,03 ou 0,02).
-- HoldMode (0, experimental): 0 = um banco retido recebe so StopFiring.
-  1 = StopFiring e depois SetFiring(0): OBSOLETO, faz o mesmo que 0.
-  2 = experimental: StopFiring e depois o MinFiringCharge do banco e elevado
-  acima da sua carga maxima, entao o jogo nao consegue dispara-lo de novo
-  (sem piscar; o banco continua carregando). O valor original e restaurado ao
-  liberar o banco (banco mantido, alvo perdido, troca de nave, etc.); nao usa
-  o temporizador rapido. Se a batalha terminar com um banco retido, nao e
-  restaurado (as naves sao destruidas): reinicie a batalha.
-- HoldHysteresis (1,0 s) e HoldSafety (1): so para HoldMode 2. Tempo minimo
-  entre mudancas de um banco; e limpeza de registros de naves que nao existem mais.
 Configuracao: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
 - Weapons (7), Interval (0,2 s), MaxCandidates (4), SecondaryRange (100),
-  SecondaryTorpedoMinSolution (70, para a fase 2), PhaserPerTarget (0), LimitInterval (0,05),
-  HoldMode (0), HoldHysteresis (1,0), HoldSafety (1), Debug (0). Sao lidas uma vez ao comecar a batalha.
+  SecondaryTorpedoMinSolution (70, para a fase 2), Debug (0). Sao lidas uma vez ao comecar a batalha.
 
 Qual nome de nave usar
 ----------------------

@@ -27,40 +27,5 @@ SecondaryRange = 100
 # target.
 SecondaryTorpedoMinSolution = 70
 
-# 1 = at most one phaser bank fires at each target at a time (the main target
-# included): the banks that reach it take turns, the others are held for a
-# moment. 0 = no limit (all banks that can fire do). Pulse weapons are never
-# limited. Only applies while the module has lifted the group's single fire.
-# EXPERIMENTAL: leave at 0 unless testing; held beams may flicker.
-PhaserPerTarget = 1
-
-# Seconds between the fast checks that hold the extra phaser banks of
-# PhaserPerTarget (a second, faster timer that exists only while a phaser group
-# is lifted; the normal Interval does everything else). Lower = less flicker.
-# Minimum 0.02. The engine cannot go below one frame, and very low values may
-# cost frames per second. Try 0.05, 0.03 or 0.02.
-LimitInterval = 0.05
-
-# How PhaserPerTarget holds an extra bank.
-# 0 = StopFiring only (default); the engine refires the bank about 0.25 s later,
-#     so a fast timer renews the hold (LimitInterval) and beams may flicker.
-# 1 = StopFiring, then SetFiring(0). OBSOLETE: the engine analysis shows it does
-#     the same as 0. Do not use.
-# 2 = EXPERIMENTAL: StopFiring, then the bank's MinFiringCharge is raised above
-#     its maximum charge, so the engine cannot refire it (no flicker; the bank
-#     keeps recharging). The original value is written back when the bank is
-#     released (kept bank, target gone, feature off, ship change, etc.). The fast
-#     timer is not used. If the battle ends while a bank is held the value is not
-#     restored (the ships are destroyed); a new battle starts clean.
-HoldMode = 2
-
-# HoldMode 2 only: seconds (game time) a bank stays held, and a released bank
-# stays free, before it may change again (avoids back-and-forth).
-HoldHysteresis = 1.0
-
-# HoldMode 2 only: 1 = every cycle, forget (and restore if the ship is still
-# live) held-bank records whose ship is gone or is not your ship any more.
-HoldSafety = 1
-
 # 1 = write messages in the log (for testing).
 Debug = 0
