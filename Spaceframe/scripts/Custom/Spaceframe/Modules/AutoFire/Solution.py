@@ -39,6 +39,8 @@ PULSE_CONE_FAR = 45.0		# PulseConeAngleFar, degrees
 PULSE_CONE_NEAR = 90.0		# PulseConeAngleNear, degrees
 PULSE_CONE_FAR_DISTANCE = 171.0	# PulseConeFarDistance, in world units
 PULSE_CONE_NEAR_DISTANCE = 29.0	# PulseConeNearDistance, in world units
+WEAPON_POSITION = "A"		# ArcDepth weapon position: "A" = pWeapon.GetWorldLocation(), "B" = ship + rotation * pWeapon.GetPosition()
+ARC_BEHIND = 99.0		# ArcDepth of a point behind the weapon
 
 g_dScripts = {}		# torpedo script name -> (guidance, turn, lifetime)
 
@@ -227,3 +229,94 @@ def Score(pShip, pTarget, vOffset, pWeapon, vDirection, tInfo, iRule=None, bPuls
 		if iRule == 2:
 			return ConeScore(fDistance, fAngle, fSpeed, tInfo[3], bPulse)
 	return ScoreValues(fDistance, fAngle, fSpeed, tInfo[1], tInfo[2], tInfo[3], GetTargetAccel(pTarget), pTarget.GetRadius())
+
+
+def LeadPoint(pTarget, vOffset, vLaunch, fSpeed):
+	# The point Score() aims at: where the target (or the chosen subsystem)
+	# will be when a projectile of speed fSpeed from vLaunch arrives (same
+	# iteration as Score). A new point, in world axes.
+	vPoint = PredictPosition(pTarget, vOffset, 0.0)
+	if fSpeed <= 0.0:
+		return vPoint
+	for i in range(3):
+		vTo = NewPoint(vPoint)
+		vTo.Subtract(vLaunch)
+		fTime = vTo.Length() / fSpeed
+		vPoint = PredictPosition(pTarget, vOffset, fTime)
+	return vPoint
+
+
+###############################################################################
+#	Pulse weapon arc (PulseRule 3). Static RE of the game: the arc is a box
+#	in two angles (radians), inside when dot(D, forward) > 0 and
+#	WidthMin <= atan2(D.right, D.forward) <= WidthMax and the same for the
+#	height with up; D = point - weapon position, axes in world space.
+###############################################################################
+def Rotate(pShip, vLocal):
+	# vLocal (ship axes) into world axes: a copy, the ship's world rotation
+	# applied as PredictPosition does for the subsystem offset.
+	vWorld = NewPoint(vLocal)
+	vWorld.MultMatrixLeft(pShip.GetWorldRotation())
+	return vWorld
+
+
+def WeaponPosition(pShip, pWeapon, sMode):
+	# A new point: where the weapon is, in the world. "A" = the weapon's own
+	# GetWorldLocation(); "B" = the ship's location plus the weapon's local
+	# position rotated by the ship (the engine's own formula, by static RE).
+	if sMode == "B":
+		vWorld = NewPoint(pShip.GetWorldLocation())
+		vWorld.Add(Rotate(pShip, pWeapon.GetPosition()))
+		return vWorld
+	return NewPoint(pWeapon.GetWorldLocation())
+
+
+def ArcAxes(pShip, pWeapon):
+	# (forward, right, up) of the weapon's arc in world axes.
+	pProp = pWeapon.GetProperty()
+	try:
+		pCast = App.PulseWeaponProperty_Cast(pProp)
+		if pCast != None:
+			pProp = pCast
+	except:
+		pass
+	return (Rotate(pShip, pProp.GetOrientationForward()), Rotate(pShip, pProp.GetOrientationRight()), Rotate(pShip, pProp.GetOrientationUp()))
+
+
+def ArcLimits(pWeapon):
+	# (width min, width max, height min, height max) in radians. Min and Max
+	# are read apart: the combined getters use out pointers.
+	return (float(pWeapon.GetArcWidthAngleMin()), float(pWeapon.GetArcWidthAngleMax()), float(pWeapon.GetArcHeightAngleMin()), float(pWeapon.GetArcHeightAngleMax()))
+
+
+def AxisDepth(fAngle, fMin, fMax):
+	# 0 at the middle of [fMin, fMax], 1 at either end, more outside.
+	fHalf = (fMax - fMin) / 2.0
+	fMid = (fMax + fMin) / 2.0
+	if fHalf <= 0.000001:
+		if abs(fAngle - fMid) <= 0.000001:
+			return 0.0
+		return ARC_BEHIND
+	return abs(fAngle - fMid) / fHalf
+
+
+def ArcDepth(pShip, pWeapon, vPoint, sMode=None):
+	# How deep the world point vPoint is inside the pulse weapon's arc: 0 at
+	# the centre, 1 at the edge (inside iff <= 1), ARC_BEHIND (99.0) when
+	# the point is behind the weapon (dot with forward <= 0). None when
+	# anything is unavailable (the caller falls back to IsInArc).
+	if sMode == None:
+		sMode = WEAPON_POSITION
+	try:
+		vDelta = NewPoint(vPoint)
+		vDelta.Subtract(WeaponPosition(pShip, pWeapon, sMode))
+		tAxes = ArcAxes(pShip, pWeapon)
+		tLimits = ArcLimits(pWeapon)
+		fForward = vDelta.Dot(tAxes[0])
+		if fForward <= 0.0:
+			return ARC_BEHIND
+		fWidth = math.atan2(vDelta.Dot(tAxes[1]), fForward)
+		fHeight = math.atan2(vDelta.Dot(tAxes[2]), fForward)
+		return max(AxisDepth(fWidth, tLimits[0], tLimits[1]), AxisDepth(fHeight, tLimits[2], tLimits[3]))
+	except:
+		return None
