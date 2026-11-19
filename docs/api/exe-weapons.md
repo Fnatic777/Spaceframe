@@ -81,3 +81,10 @@ WeaponSystem vtable 0x8938c4, PhaserSystem 0x893240: #25 Update(dt) 0x5847d0 (sh
 - Logic: on entry `eax` = validated candidate; if non-zero, loop banks of the system ([sys+0x1c] count, 0x56c570 getter, thiscall ecx=sys): if another bank has +0x88 == 1 and +0x8c == target ID, reject the candidate (jmp 0x584f58); else continue at 0x584f2a. The system pointer is read from [esp+8] (saved caller esi; TryFire has one caller, 0x584b19).
 - Not covered: the sticky path (0x584ee2): a bank that still holds its previous target keeps it even if another bank fires there. Not seen in game yet; second hook near 0x584eed if it shows.
 - Cave v2 (88 bytes, VA 0x8879f2..0x887a4a, confirmed in game): starts with `mov ecx,[esp+4]; mov edx,[ecx]; push 0x801f; call [edx+8]` (virtual IsA, thiscall, ret 4); a system that is not a PhaserSystem takes the original path (`mov edx,[esi]; jmp 0x584f2a`). Type ids: PhaserSystem 0x801f, PulseWeaponSystem 0x8020, TorpedoSystem 0x8021, WeaponSystem 0x801d. `tools/exe_patch.py` keeps cave v1 as legacy (`status` shows patched-v1, `upgrade` moves to v2).
+
+## PulseWeapon CanHitTarget vs IsInArc (static, not confirmed in game)
+
+- `CanHitTarget`: wrapper 0x6192b0 -> C++ 0x575610. Args: P (world point) and an OUT param written on success. The target is NOT an argument: it is taken from the weapon's own target ID at +0x8c. It checks closing speed and time (time vs the property default 8.0), and its final gate is IsInArc (0x575a60). So it is not an arc query.
+- `IsInArc`: wrapper 0x6199b0 -> C++ 0x575a60. One arg, a world point (e.g. `pTarget.GetWorldLocation()`). Dot with forward > 0, then the width/height angle test. Ignores charge, range and target ID. Returns 1 inside the arc, 0 outside.
+- `PulseWeapon::Fire` (slot #128, 0x5752a0) gates on CanHitTarget at 0x575373.
+- AutoFire `PulseReady` uses `IsInArc(pTarget.GetWorldLocation())` (falls back to ready if the call raises).

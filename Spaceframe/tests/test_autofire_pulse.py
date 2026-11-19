@@ -67,6 +67,46 @@ def test_pulse_out_of_arc():
 	assert pulse.starts() == 0
 
 
+def test_pulse_ready_in_arc():
+	App, AF, ship, target, pulse, S = setup(90.0, arc=1)
+	w = pulse.lChildren[0]
+	assert AF.PulseReady(w, target) == 1
+	assert w.arcPoints[0].x == 10.0	# the target's world point
+
+
+def test_pulse_ready_out_of_arc():
+	App, AF, ship, target, pulse, S = setup(90.0, arc=0)
+	assert AF.PulseReady(pulse.lChildren[0], target) == 0
+
+
+def test_pulse_ready_arc_object_result():
+	App, AF, ship, target, pulse, S = setup(90.0, arc=1)
+	w = pulse.lChildren[0]
+	w.iArc = 2
+	assert AF.PulseReady(w, target) == 1
+
+
+def test_pulse_ready_arc_raises_falls_back():
+	App, AF, ship, target, pulse, S = setup(90.0, arc="raise")
+	assert AF.PulseReady(pulse.lChildren[0], target) == 1
+	AF.FireCycle()
+	assert pulse.starts() == 1
+
+
+def test_pulse_ready_low_charge_any_arc():
+	for arc in (1, 0, "raise"):
+		App, AF, ship, target, pulse, S = setup(90.0, charge=1.0, arc=arc)
+		assert AF.PulseReady(pulse.lChildren[0], target) == 0
+
+
+def test_pulse_best_score_ignores_out_of_arc():
+	App, AF, ship, target, pulse, S = setup(90.0, arc=0)
+	assert AF.BestPulseScore(ship, pulse, target) == 0.0
+	assert S.calls == []	# the out-of-arc weapon is never scored
+	pulse.lChildren.append(mock_app.Pulse(5.0, 2.0, 1))
+	assert AF.BestPulseScore(ship, pulse, target) == 90.0
+
+
 def test_pulse_manual_priority():
 	App, AF, ship, target, pulse, S = setup(90.0)
 	AF.g_dManual[App.ShipClass.WG_TERTIARY] = 1

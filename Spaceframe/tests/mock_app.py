@@ -440,6 +440,7 @@ class Pulse:
 		self.fSpeed = fSpeed
 		self.sModule = sModule
 		self.pPos = Point()
+		self.arcPoints = []
 
 	def GetChargeLevel(self):
 		return self.fCharge
@@ -447,7 +448,11 @@ class Pulse:
 	def GetMinFiringCharge(self):
 		return self.fMin
 
-	def CanHitTarget(self, pTarget):
+	def IsInArc(self, pPoint):
+		# iArc: 1/0 result, or "raise" to simulate the call failing.
+		self.arcPoints.append(pPoint)
+		if self.iArc == "raise":
+			raise TypeError("IsInArc")
 		return self.iArc
 
 	def GetLaunchSpeed(self):
