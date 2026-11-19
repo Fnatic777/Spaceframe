@@ -203,6 +203,13 @@ Only for the player's ship, and only if it has "SecondaryTarget" in Ships.py.
 - Weapons (Ships.py number or Config): 1 phasers, 2 torpedoes, 4 pulse
   weapons. Torpedoes are not active yet (phase 2): the bit is accepted but
   does nothing for now.
+- Optional engine patch (stbc.exe): one weapon bank per target. The game itself
+  only knows "one bank at a time"; with the patch, banks that reach different
+  targets fire together but two banks never share the same target. Apply with
+  "python tools/exe_patch.py apply" (hash-checked, keeps stbc.exe.orig-<hash>),
+  undo with "python tools/exe_patch.py revert". It affects every ship of the
+  game, AI included, and works only on the build it checks for. The module
+  works without it (several banks may then shoot the same target).
 Settings: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
 - Weapons (7), Interval (0.2 s), MaxCandidates (4), SecondaryRange (100),
   SecondaryTorpedoMinSolution (70, for phase 2), Debug (0). Read once when a battle starts.
@@ -461,6 +468,14 @@ las armas que lo alcanzan. Solo para la nave del jugador, y solo si tiene
 - Weapons (numero de Ships.py o Config): 1 phasers, 2 torpedos, 4 armas de
   pulso. Los torpedos todavia no estan activos (fase 2): el bit se acepta
   pero por ahora no hace nada.
+- Parche opcional del motor (stbc.exe): un banco de armas por objetivo. El juego
+  solo conoce "un banco a la vez"; con el parche, los bancos que alcanzan
+  objetivos distintos disparan juntos, pero dos bancos nunca comparten el mismo
+  objetivo. Se aplica con "python tools/exe_patch.py apply" (comprueba el hash,
+  guarda stbc.exe.orig-<hash>) y se deshace con "python tools/exe_patch.py revert".
+  Afecta a todas las naves del juego, tambien las de la IA, y solo sirve para
+  la version que comprueba. El modulo funciona sin el (varios bancos pueden
+  disparar al mismo objetivo).
 Configuracion: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
 - Weapons (7), Interval (0,2 s), MaxCandidates (4), SecondaryRange (100),
   SecondaryTorpedoMinSolution (70, para la fase 2), Debug (0). Se leen una vez al empezar la batalla.
@@ -713,6 +728,13 @@ que o alcancam. So para a nave do jogador, e so se ela tiver
 - Weapons (numero do Ships.py ou Config): 1 phasers, 2 torpedos, 4 armas de
   pulso. Os torpedos ainda nao estao ativos (fase 2): o bit e aceito mas por
   enquanto nao faz nada.
+- Patch opcional do motor (stbc.exe): um banco de armas por alvo. O jogo so
+  conhece "um banco por vez"; com o patch, bancos que alcancam alvos diferentes
+  atiram juntos, mas dois bancos nunca dividem o mesmo alvo. Aplique com
+  "python tools/exe_patch.py apply" (confere o hash, guarda stbc.exe.orig-<hash>)
+  e desfaca com "python tools/exe_patch.py revert". Afeta todas as naves do
+  jogo, inclusive as da IA, e so vale para a build que ele confere. O modulo
+  funciona sem ele (varios bancos podem atirar no mesmo alvo).
 Configuracao: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
 - Weapons (7), Interval (0,2 s), MaxCandidates (4), SecondaryRange (100),
   SecondaryTorpedoMinSolution (70, para a fase 2), Debug (0). Sao lidas uma vez ao comecar a batalha.
