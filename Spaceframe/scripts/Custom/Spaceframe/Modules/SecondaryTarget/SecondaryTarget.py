@@ -29,6 +29,7 @@ g_pMission = None	# object the broadcast handlers were registered on
 g_dLifted = {}		# ship ID -> {weapon group: original IsSingleFire}
 g_dAdded = {}		# (ship ID, weapon group) -> IDs of the secondaries this module added
 g_iShipID = None	# the player's ship the module last worked on
+g_tLiftDone = None	# (ship ID, mask) LiftShip last handled; None = lift again
 g_pAutoFire = None	# AutoFire module (helpers), imported on first use
 g_bAutoFireFailed = 0	# 1 = the import failed: no candidates, logged once
 g_iOn = 0		# switched on (by StartEnabled or the player)
@@ -236,6 +237,8 @@ def RestoreGroup(pShip, eGroup):
 
 def ReleaseShipID(iID):
 	# Restores by ID: looks the ship up again; nothing is asked when it is gone.
+	global g_tLiftDone
+	g_tLiftDone = None
 	pShip = None
 	try:
 		pShip = App.ShipClass_GetObjectByID(None, iID)
@@ -250,7 +253,8 @@ def ReleaseShipID(iID):
 
 def ForgetAll():
 	# Drops every record without touching any ship (used by Stop).
-	global g_dLifted, g_dAdded, g_iShipID
+	global g_dLifted, g_dAdded, g_iShipID, g_tLiftDone
+	g_tLiftDone = None
 	g_dLifted = {}
 	g_dAdded = {}
 	g_iShipID = None
@@ -612,6 +616,8 @@ def MaintainGroup(pShip, pMain, eGroup, iMask):
 def ReleaseCurrent(iID):
 	# Takes the secondaries back and gives the single-fire property back, both
 	# only if the ship is found live by ID (a gone ship is just forgotten).
+	global g_tLiftDone
+	g_tLiftDone = None
 	pShip = Lookup(iID)
 	if pShip != None:
 		StopAllAdded(pShip)
@@ -623,10 +629,11 @@ def ReleaseCurrent(iID):
 def StopGroups():
 	# The player's ship changed: release the old ship (only if it is still
 	# live, looked up by ID) and forget it.
-	global g_iShipID
+	global g_iShipID, g_tLiftDone
 	if g_iShipID != None:
 		ReleaseCurrent(g_iShipID)
 	g_iShipID = None
+	g_tLiftDone = None
 
 
 def LiftShip(pShip, iMask):
@@ -635,7 +642,9 @@ def LiftShip(pShip, iMask):
 	# its four cannons together; a single-fire pulse stays single) and
 	# torpedoes stay inactive. Groups whose kind left the mask, or that are
 	# not phasers, are given back. The original value is recorded before the
-	# first change.
+	# first change. The (ship ID, mask) pair is remembered even when a group
+	# failed (logged once), so Cycle does not retry every tick.
+	global g_tLiftDone
 	for tEntry in GetFireEvents():
 		try:
 			pSystem = pShip.GetWeaponSystemGroup(tEntry[1])
@@ -645,9 +654,14 @@ def LiftShip(pShip, iMask):
 				if (sKind != "phaser") or ((KindBit(sKind) & iMask) == 0):
 					RestoreGroup(pShip, tEntry[1])
 				elif (not g_dLifted.has_key(iShip)) or (not g_dLifted[iShip].has_key(tEntry[1])):
-					LiftSingleFire(pShip, pSystem, tEntry[1])
+					if not LiftSingleFire(pShip, pSystem, tEntry[1]):
+						DebugLog("LiftShip: group " + str(tEntry[1]) + " not lifted")
 		except:
 			DebugLog("LiftShip error: " + str(sys.exc_info()[1]))
+	try:
+		g_tLiftDone = (pShip.GetObjID(), iMask)
+	except:
+		g_tLiftDone = None
 
 
 def DropSecondaries(pShip):
@@ -680,7 +694,8 @@ def Cycle():
 	if pPlayer.IsDead() or pPlayer.IsDying():
 		ReleaseCurrent(iID)
 		return
-	LiftShip(pPlayer, iMask)
+	if g_tLiftDone != (iID, iMask):
+		LiftShip(pPlayer, iMask)
 	bOK = 1
 	try:
 		if pPlayer.IsCloaked():

@@ -236,6 +236,110 @@ def test_start_enabled_without_tech_lifts_after_ship_change():
 	ST.Stop()
 
 
+def count_lift(ST):
+	# Counts the module's LiftShip / LiftSingleFire calls (looked up at call time).
+	n = {"ship": 0, "single": 0}
+	fShip = ST.LiftShip
+	fSingle = ST.LiftSingleFire
+
+	def wShip(pShip, iMask):
+		n["ship"] = n["ship"] + 1
+		return fShip(pShip, iMask)
+
+	def wSingle(pShip, pSystem, eGroup):
+		n["single"] = n["single"] + 1
+		return fSingle(pShip, pSystem, eGroup)
+	ST.LiftShip = wShip
+	ST.LiftSingleFire = wSingle
+	return n
+
+
+def test_lift_runs_once_for_same_ship_and_mask():
+	App, ST, core, ship, tg, gs = started(1)
+	n = count_lift(ST)
+	for i in range(10):
+		ST.Cycle()
+	assert n["ship"] == 0
+	assert ST.g_tLiftDone == (1, 7)
+	assert [t for t in T.calls("single")] == [("single", "g0", 0)]
+	ST.Stop()
+
+
+def test_lift_again_on_mask_change():
+	App, ST, core, ship, tg, gs = started(1)
+	n = count_lift(ST)
+	ST.Cycle()
+	assert n["ship"] == 0
+	core.techs["Galaxy"] = {"SecondaryTarget": 4}	# pulse only: phasers given back
+	ST.Cycle()
+	ST.Cycle()
+	assert n["ship"] == 1
+	assert gs[0].pProp.iSingle == 1 and ST.g_dLifted == {}
+	assert ST.g_tLiftDone == (1, 4)
+	ST.Stop()
+
+
+def test_lift_again_on_ship_change():
+	App, ST, core, ship, tg, gs = started(1)
+	n = count_lift(ST)
+	other = mock_app.Ship("Galaxy", 7)
+	o0 = T.ListGroup([T.ReachBank([20.0])], "o0")
+	other.groups[0] = o0
+	App._player[0] = other
+	ST.Cycle()
+	ST.Cycle()
+	assert n["ship"] == 1
+	assert ST.g_tLiftDone == (7, 7)
+	assert o0.pProp.iSingle == 0
+	ST.Stop()
+
+
+def test_lift_again_after_off_on():
+	App, ST, core, ship, tg, gs = started(1)
+	n = count_lift(ST)
+	ST.Toggle()
+	assert ST.g_tLiftDone == None and gs[0].pProp.iSingle == 1
+	ST.Toggle()
+	assert n["ship"] == 1 and gs[0].pProp.iSingle == 0
+	ST.Cycle()
+	ST.Cycle()
+	assert n["ship"] == 1
+	ST.Stop()
+
+
+def test_lift_remembered_pair_cleared_on_release_paths():
+	App, ST, core, ship, tg, gs = started(1)
+	ship.dead = 1
+	ST.Cycle()
+	assert ST.g_tLiftDone == None
+	ship.dead = 0
+	ST.Cycle()
+	assert ST.g_tLiftDone == (1, 7) and gs[0].pProp.iSingle == 0
+	ST.Stop()
+	assert ST.g_tLiftDone == None
+
+
+def test_failing_lift_not_retried_every_tick():
+	App, ST, core, ship, tg, gs = started(1)
+
+	def bad(i):
+		raise RuntimeError("no")
+	gs[0].pProp.SetSingleFire = bad
+	ST.Toggle()	# OFF (restore fails, swallowed)
+	n = count_lift(ST)
+	ST.Toggle()	# ON: the lift fails once, the pair is still remembered
+	assert n["ship"] == 1 and n["single"] == 1
+	assert ST.g_tLiftDone == (1, 7)
+	for i in range(10):
+		ST.Cycle()
+	assert n["ship"] == 1 and n["single"] == 1
+	# a fresh toggle OFF/ON retries once
+	ST.Toggle()
+	ST.Toggle()
+	assert n["ship"] == 2 and n["single"] == 2
+	ST.Stop()
+
+
 def run():
 	failed = 0
 	names = [n for n in sorted(globals()) if n.startswith("test_")]
