@@ -3,7 +3,7 @@
 Needs: capstone, pefile, keystone. status/verify never write to the exe.
 
 Usage (repo root):
-  python tools/exe_patch.py status   [--exe PATH]         sha256, known build?, original|patched|patched-v1|modified-unknown
+  python tools/exe_patch.py status   [--exe PATH]         sha256, known build?, original|patched|patched-v1|partial-cave|modified-unknown
   python tools/exe_patch.py apply    [--exe PATH] [--yes]  prints the plan, asks to type 'yes' (or --yes);
                                                            backup <exe>.orig-<sha8> made once, never overwritten
   python tools/exe_patch.py upgrade  [--exe PATH] [--yes]  patched-v1 -> revert (sha check) -> apply v2
@@ -16,7 +16,7 @@ v2 (current): the cave rejects a candidate target when another bank of the syste
   ONLY when the system is a PhaserSystem (IsA 0x801f); other systems behave as the original.
 v1 (LEGACY): same rule for every system. Kept so it can be detected, reverted and upgraded.
 """
-import sys, os, hashlib, shutil, struct, tempfile
+import sys, os, hashlib, shutil, struct, tempfile, io, contextlib
 
 try:
 	import pefile
@@ -194,7 +194,7 @@ def check_sites(pe, data, sites):
 
 
 def detect(pe, data):
-	"""Returns (state, problems, variant). state: original|patched|patched-v1|modified-unknown."""
+	"""Returns (state, problems, variant). state: original|patched|patched-v1|partial-cave|modified-unknown."""
 	st, probs = check_sites(pe, data, sites_for("v2"))
 	if st == "original":
 		return "original", probs, None
@@ -203,6 +203,12 @@ def detect(pe, data):
 	st1, probs1 = check_sites(pe, data, sites_for("v1"))
 	if st1 == "patched":
 		return "patched-v1", probs1, "v1"
+	# interrupted write (cave first, hook last): hook original, cave not all zero (complete cave = unreachable)
+	hoff, _ = file_off(pe, HOOK_VA)
+	coff, _ = file_off(pe, CAVE_VA)
+	if hoff is not None and coff is not None and data[hoff:hoff + len(HOOK_ORIG)] == HOOK_ORIG \
+			and data[coff:coff + CAVE_LEN] != b"\x00" * CAVE_LEN:
+		return "partial-cave", probs, None
 	return "modified-unknown", probs, None
 
 
@@ -262,6 +268,10 @@ def cmd_status(path):
 		print("  LEGACY cave v1 (rule applies to every system): run 'upgrade' (or 'revert' then 'apply')")
 	elif state == "patched":
 		print("  cave v2 (PhaserSystem only), ends at 0x%x" % CAVE_END)
+	elif state == "partial-cave":
+		print("  hook is original but the cave area holds bytes (interrupted write, unreachable): 'revert' cleans it")
+	elif state == "modified-unknown":
+		print("  unknown bytes: restore the backup %s" % backup_path(path))
 	for name, va, orig, new in SITES:
 		off, sec = file_off(pe, va)
 		if sec is not None:
@@ -282,6 +292,12 @@ def cmd_apply(path, yes):
 	state, probs, var = detect(pe, data)
 	if state == "patched-v1":
 		print("REFUSED: legacy cave v1 is installed; run 'revert' first (or 'upgrade')")
+		return 1
+	if state == "patched":
+		print("REFUSED: already patched (cave v2)")
+		return 1
+	if state == "partial-cave":
+		print("REFUSED: partial cave bytes from an interrupted write; run revert first")
 		return 1
 	if h != SHA:
 		print("REFUSED: sha256 %s != expected build" % h)
@@ -333,6 +349,18 @@ def cmd_revert(path):
 	if state == "original":
 		print("already original; sha256 %s" % sha_of(data))
 		return 0 if sha_of(data) == SHA else 1
+	if state == "partial-cave":
+		coff, _ = file_off(pe, CAVE_VA)
+		with open(path, "r+b") as f:
+			f.seek(coff)
+			f.write(b"\x00" * CAVE_LEN)
+		data2, _ = load(path)
+		h = sha_of(data2)
+		if h == SHA:
+			print("partial cave cleaned; sha256 %s (OK original)" % h)
+			return 0
+		print("partial cave zeroed but sha256 %s != original: the exe differs from the known build elsewhere; restore the backup %s" % (h, backup_path(path)))
+		return 1
 	if state not in ("patched", "patched-v1"):
 		print("REFUSED: state=%s; restore the backup %s manually" % (state, backup_path(path)))
 		return 1
@@ -387,7 +415,10 @@ def cmd_verify(path):
 		else:
 			shown = "patched" if cur == new else "original" if cur == orig else "UNKNOWN"
 		print("[%s] 0x%x (%s)" % (name, va, shown))
-		for i in md.disasm(new if state != "patched-v1" and cur == orig else cur, va):
+		shown_bytes = new if state != "patched-v1" and cur == orig else cur
+		if state == "patched-v1" and name == "cave":
+			shown_bytes = cur[:len(CAVE1)]  # real v1 length only, not the zero padding
+		for i in md.disasm(shown_bytes, va):
 			print("  %x: %s %s" % (i.address, i.mnemonic, i.op_str))
 	print("cave v2 source reproduces %d bytes (0x%x..0x%x): OK" % (len(CAVE2), CAVE_VA, CAVE_END))
 	return 0
@@ -408,13 +439,19 @@ def cmd_selftest(src):
 	exe = os.path.join(tmp, "stbc.exe")
 	shutil.copyfile(src, exe)
 	d0, pe0 = load(exe)
-	if detect(pe0, d0)[0] in ("patched", "patched-v1"):
+	if detect(pe0, d0)[0] in ("patched", "patched-v1", "partial-cave"):
 		cmd_revert(exe)  # the source exe is already patched: test from its original state
 	ok = True
 	res = [True]
 	def expect(c, msg):
 		print(("PASS " if c else "FAIL ") + msg)
 		res[0] = res[0] and bool(c)
+	def capture(fn, *args):
+		buf = io.StringIO()
+		with contextlib.redirect_stdout(buf):
+			rc = fn(*args)
+		print(buf.getvalue(), end="")
+		return rc, buf.getvalue()
 	def sha_now():
 		with open(exe, "rb") as f:
 			return sha_of(f.read())
@@ -424,13 +461,16 @@ def cmd_selftest(src):
 	expect(os.path.exists(backup_path(exe)), "backup created")
 	expect(cmd_status(exe) == "patched", "status = patched (v2)")
 	expect(cmd_verify(exe) == 0, "verify v2")
-	expect(cmd_apply(exe, True) == 1, "second apply refused")
+	rc, out = capture(cmd_apply, exe, True)
+	expect(rc == 1 and "already patched (cave v2)" in out, "apply on v2 -> 'already patched' text")
 	expect(cmd_revert(exe) == 0, "revert v2")
 	expect(sha_now() == SHA, "sha256 back to original after v2")
 	# synthetic v1
 	write_variant(exe, "v1")
 	expect(cmd_status(exe) == "patched-v1", "status = patched-v1")
-	expect(cmd_verify(exe) == 0, "verify with v1 present")
+	rc, out = capture(cmd_verify, exe)
+	expect(rc == 0, "verify with v1 present")
+	expect("add byte ptr [eax], al" not in out and "add [eax], al" not in out, "verify v1: no zero-padding disassembly")
 	expect(cmd_apply(exe, True) == 1, "apply refused on patched-v1")
 	expect(cmd_revert(exe) == 0, "revert v1")
 	expect(sha_now() == SHA, "sha256 back to original after v1")
@@ -440,6 +480,17 @@ def cmd_selftest(src):
 	expect(cmd_status(exe) == "patched", "status = patched after upgrade")
 	expect(cmd_upgrade(exe, True) == 1, "upgrade refused on v2")
 	expect(cmd_revert(exe) == 0 and sha_now() == SHA, "revert after upgrade -> original")
+	# partial-cave: cave written, hook original (full v2 cave, and a half cave)
+	for label, part in (("full v2 cave", CAVE2), ("half cave (40 bytes)", CAVE2[:40])):
+		d, pe = load(exe)
+		coff, _ = file_off(pe, CAVE_VA)
+		with open(exe, "r+b") as f:
+			f.seek(coff)
+			f.write(part)
+		expect(cmd_status(exe) == "partial-cave", "status = partial-cave (%s)" % label)
+		rc, out = capture(cmd_apply, exe, True)
+		expect(rc == 1 and "run revert first" in out, "apply refused on partial-cave (%s)" % label)
+		expect(cmd_revert(exe) == 0 and sha_now() == SHA, "revert cleans partial-cave (%s) -> original" % label)
 	# negative: corrupt one hook byte
 	d, pe = load(exe)
 	off, _ = file_off(pe, HOOK_VA)
