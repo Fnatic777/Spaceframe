@@ -25,6 +25,8 @@ VERSION = "0.4"
 BUTTON_TEXT = "Auto Fire"
 
 g_pCore = None
+g_bArcLogged = 0	# 1 once an IsInArc failure was logged (no per-tick spam)
+g_bArcZeroLogged = 0	# 1 once the first 'target outside the pulse arc' was logged
 g_iOn = 0		# switched on by the player
 g_iShipID = None	# player ship it was switched on for
 g_eButton = None	# event type of the menu button (one per game session)
@@ -73,7 +75,7 @@ def LoadConfig():
 	global g_bDebug, g_iTargetMode, g_fPhaserMinCharge, g_fPhaserRange
 	global g_iTorpedoReserve, g_fTorpedoMinSolution, g_iTorpedoRule
 	global g_fSpreadMinSolution, g_fSpreadMinDistance, g_fPulseMinSolution
-	global g_iPulseRule, g_iTapFire
+	global g_iPulseRule, g_iTapFire, g_bArcLogged, g_bArcZeroLogged
 	pConfig = GetConfig()
 	g_iTargetMode = int(getattr(pConfig, "TargetMode", 0))
 	g_fPhaserMinCharge = float(getattr(pConfig, "PhaserMinCharge", 50))
@@ -86,6 +88,8 @@ def LoadConfig():
 	g_fPulseMinSolution = float(getattr(pConfig, "PulseMinSolution", 70))
 	g_iPulseRule = int(getattr(pConfig, "PulseRule", 1))
 	g_iTapFire = int(getattr(pConfig, "TapFire", 1))
+	g_bArcLogged = 0
+	g_bArcZeroLogged = 0
 	g_bDebug = 0
 	try:
 		if g_pCore != None:
@@ -626,14 +630,33 @@ def PhasersReady(pSystem, pTarget):
 
 
 def PulseReady(pWeapon, pTarget):
-	# 1 if this pulse weapon is charged enough and can reach the target.
+	# 1 if this pulse weapon is charged enough and the target is inside its
+	# arc. IsInArc(world point) is the pure arc test (static RE, unconfirmed
+	# in game). If the call raises, fall back to 1 (the game itself only
+	# fires weapons that can hit) and log it once in Debug mode.
+	global g_bArcLogged, g_bArcZeroLogged
 	if pWeapon.GetChargeLevel() < pWeapon.GetMinFiringCharge():
 		return 0
 	try:
-		return pWeapon.CanHitTarget(pTarget)
+		iArc = pWeapon.IsInArc(pTarget.GetWorldLocation())
 	except:
-		# Unknown: the game itself only fires weapons that can hit.
+		if g_bDebug and (not g_bArcLogged):
+			g_bArcLogged = 1
+			try:
+				g_pCore.Log(NAME, "IsInArc failed, arc not checked: " + str(sys.exc_info()[1]))
+			except:
+				pass
 		return 1
+	if iArc:
+		return 1
+	if g_bDebug and (not g_bArcZeroLogged):
+		# A wrong 0 would silently hold fire: show the first one.
+		g_bArcZeroLogged = 1
+		try:
+			g_pCore.Log(NAME, "IsInArc = 0: pulse weapon outside the arc (first time this battle)")
+		except:
+			pass
+	return 0
 
 
 def BestPulseScore(pShip, pSystem, pTarget):

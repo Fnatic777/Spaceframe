@@ -49,7 +49,7 @@ guesses as `(unconfirmed)`. Names only are in `App-index.txt` (grep it).
 - Shields (bc_dauntless): facing >= 60% absorbs, only excess passes; 10%..60% leaks
   `0.6 * (1 - 2 * (f - 0.1))`; <= 10% everything passes, facing not drained.
 - `PhaserBank.CanHit(point)` takes a world point (`pTarget.GetWorldLocation()`), not a ship.
-- `PulseWeapon.CanHitTarget(point, vector)`: (loc, vZero) accepted in game (returned 0 for a target the weapons were firing at - meaning of the 2nd arg unclear); `(ship)` and `(ship, vZero)` raise TypeError (AutoFire.PulseReady uses 1 arg: its arc check never runs). Charge `GetChargeLevel() >= GetMinFiringCharge()`.
+- `PulseWeapon.CanHitTarget(point, vector)`: (loc, vZero) accepted in game (returned 0 for a target the weapons were firing at - meaning of the 2nd arg unclear); `(ship)` and `(ship, vZero)` raise TypeError. CanHitTarget is not an arc query (exe: it uses the weapon's own target ID, its 2nd arg is an OUT param). Arc test: `PulseWeapon.IsInArc(pTarget.GetWorldLocation())` (one world point, 1/0); AutoFire.PulseReady uses it and Auto Fire pulse fire looked right in game (2026-11-19, tested without Debug). Charge `GetChargeLevel() >= GetMinFiringCharge()`.
 - Tube direction: `Weapon.CalculateRoughDirection()` (world axes).
   Prediction: `PhysicsObjectClass.GetPredictedPosition(pos, vel, accel, t)` (as AI PredictTargetLocation).
 - `TorpedoTube.IsInArc` signature (unconfirmed) - avoided.
