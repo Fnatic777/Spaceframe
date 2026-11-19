@@ -56,6 +56,9 @@ class ListGroup(mock_app.WeaponGroup):
 		if pTarget in self.lTargets:
 			self.lTargets.remove(pTarget)
 
+	def SetForceUpdate(self, i):
+		LOG.append(("force", self.sTag, i))
+
 	def Press(self, pMain):
 		# What the game does on a key press: the main target in the list.
 		self.lTargets = [pMain]
@@ -95,7 +98,7 @@ def make_config(**kw):
 	c.Interval = 0.2
 	c.MaxCandidates = 4
 	c.SecondaryRange = 100
-	c.SecondaryTorpedoMinSolution = 70
+	c.SecondaryTorpedoRange = 30
 	c.Debug = 0
 	for k in kw:
 		setattr(c, k, kw[k])
@@ -414,7 +417,10 @@ def test_on_fire_key_always_calls_next_handler():
 def test_debug_banner_once_per_change():
 	App, ST, core, ship = setup(Debug=1)
 	lShown = []
-	sys.modules["MissionLib"].TextBanner = lambda *a: lShown.append(a[1].s)
+	lBanner = []
+	# the separate banner is gone: the change goes to DebugPrint (and the ADD/DEL trace lines)
+	sys.modules["MissionLib"].TextBanner = lambda *a: lBanner.append(a[1].s)
+	ST.DebugPrint = lShown.append
 	main, b, c, pSys = scene(core, ship)
 	pSys.Press(main)
 	ST.Cycle()
@@ -425,6 +431,735 @@ def test_debug_banner_once_per_change():
 	ST.Cycle()
 	assert len(lShown) == 2
 	assert "-3" in lShown[1]
+	assert lBanner == []	# nothing on screen until the trace idles
+
+
+def torp_scene(core, ship, iEgroup=2):
+	"""Main at x=10 (ahead), B at x=20 (ahead), C at x=-20 (behind). One
+	forward tube and one aft tube in the torpedo group."""
+	main = enemy("Main", 2, 10.0)
+	b = enemy("B", 3, 20.0)
+	c = enemy("C", 4, -20.0)
+	core.g_pMission = mock_app.Mission([main, b, c])
+	ship.target = main
+	tFwd = mock_app.Tube()
+	tAft = mock_app.Tube(mock_app.Point(-1.0, 0.0, 0.0))
+	pSys = ListGroup([tFwd, tAft], "gt")
+	pSys.torpedo = 1
+	ship.groups[iEgroup] = pSys
+	return main, b, c, pSys
+
+
+def test_torpedo_group_gets_only_reachable_secondaries():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = torp_scene(core, ship)
+	pSys.Press(main)
+	ST.Cycle()
+	# only the aft tube is free and it reaches C, not B
+	assert pSys.ids() == [2, 4]
+	assert [t[2] for t in calls("start")] == [4]
+	ST.Cycle()
+	assert len(calls("start")) == 1
+	# key release empties the list: re-added once when fired again
+	pSys.Release()
+	ST.Cycle()
+	assert pSys.ids() == []
+	pSys.Press(main)
+	ST.Cycle()
+	assert pSys.ids() == [2, 4]
+
+
+def state_scene(iDebug):
+	App, ST, core, ship = setup(Debug=iDebug)
+	lShown = []
+	# the rare "Secondary target: group ..." banner is not part of the trace display
+	sys.modules["MissionLib"].TextBanner = lambda *a: (a[4] > 5.0) and lShown.append((a[1].s, a[3], a[4]))
+	CLOCK = [100.0]
+	App.g_kUtopiaModule.GetGameTime = lambda: CLOCK[0]
+	main, b, c, pSys = torp_scene(core, ship)
+	pSys.Press(main)
+	return ST, pSys, lShown, CLOCK
+
+
+def test_state_banner_text_and_throttle():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	ST.Cycle()
+	assert ST.g_lTrace == ["t=0.0 T2 f1 M:in S:in fwd=1 free=1 ff=0", "t=0.0 ADD 4"], ST.g_lTrace
+	ST.Cycle()
+	CLOCK[0] = 100.4
+	ST.Cycle()
+	assert len(ST.g_lTrace) == 2
+	CLOCK[0] = 100.5
+	ST.Cycle()
+	assert len(ST.g_lTrace) == 2	# same state within 2.0 s: compressed
+	CLOCK[0] = 101.9
+	ST.Cycle()
+	assert len(ST.g_lTrace) == 2
+	assert [s for s in ST.g_lTrace if "FWD EMPTY" in s] == []
+	assert lShown == []	# nothing on screen until idle
+	CLOCK[0] = 103.0	# idle for 3.0 s: shown (and cleared) before anything new
+	ST.Cycle()
+	assert len(lShown) == 2 and lShown[0][0] == "t=0.0 T2 f1 M:in S:in fwd=1 free=1 ff=0"
+	assert len(ST.g_lTrace) == 1	# cleared, then only the fresh refresh line of the new trace
+
+
+def test_trace_lines_reach_the_core_log_once():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	core = ST.g_pCore
+	ST.Cycle()
+	lTrace = list(ST.g_lTrace)
+	assert len(lTrace) == 2
+	lLogged = [t[1] for t in core.logs]
+	for s in ("T2 f1 M:in S:in fwd=1 free=1 ff=0", "ADD 4"):
+		assert lLogged.count(s) == 1, lLogged
+	CLOCK[0] = 103.5
+	ST.Cycle()		# idle: ShowTrace runs
+	assert len(lShown) == 2
+	lLogged = [t[1] for t in core.logs]
+	assert lLogged.count("ADD 4") == 1	# ShowTrace did not log it again
+	assert [s for s in lLogged if s.startswith("t=")] == []
+	assert lLogged.count("Cycle: main target ok") == 1	# idle cycles stay silent
+
+
+def test_state_changed_text_is_appended():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	ST.Cycle()
+	assert len(ST.g_lTrace) == 2
+	pSys.lChildren[0].iReady = 0	# fwd=1 -> fwd=0
+	CLOCK[0] = 100.5
+	ST.Cycle()
+	assert len([s for s in ST.g_lTrace if "fwd=0" in s]) == 1, ST.g_lTrace
+
+
+def test_state_fwd_empty_once_per_press():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	pSys.lChildren[0].iReady = 0
+	ST.Cycle()
+	CLOCK[0] = 101.0
+	ST.Cycle()
+	assert len([s for s in ST.g_lTrace if "FWD EMPTY" in s]) == 1
+	pSys.Release()
+	ST.Cycle()
+	CLOCK[0] = 104.1
+	ST.Cycle()
+	assert len([s for s in lShown if "FWD EMPTY" in s[0]]) == 1
+	assert ST.g_lTrace == []
+	pSys.Press(ST.Lookup(2))
+	ST.Cycle()
+	assert len([s for s in ST.g_lTrace if "FWD EMPTY" in s]) == 1
+
+
+def test_state_nothing_with_debug_off():
+	ST, pSys, lShown, CLOCK = state_scene(0)
+	pSys.lChildren[0].iReady = 0
+	ST.Cycle()
+	pSys.Release()
+	ST.Cycle()
+	assert lShown == []
+	assert ST.g_lTrace == []
+	assert ST.g_dStateAt == {}
+
+
+def test_trace_add_del_lines():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	ST.Cycle()
+	ST.Lookup(4).dead = 1
+	CLOCK[0] = 101.0
+	ST.Cycle()
+	assert [s for s in ST.g_lTrace if "ADD 4" in s] == ["t=0.0 ADD 4"]
+	assert [s for s in ST.g_lTrace if "DEL 4" in s] == ["t=1.0 DEL 4"], ST.g_lTrace
+
+
+def test_trace_shown_by_cycle_after_2s_idle_once_last_15():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	for i in range(30):
+		CLOCK[0] = 100.0 + 1.0 * i	# a new line every second: never idle 2.0 s
+		ST.TraceAdd("x" + str(i))
+		ST.Cycle()
+	lTrace = list(ST.g_lTrace)
+	assert len(lTrace) > 12
+	assert lShown == []	# lines keep coming: never idle 2.0 s
+	pSys.Release()
+	CLOCK[0] = 130.0
+	ST.Cycle()		# appends STOP at 130.0
+	assert lShown == []
+	CLOCK[0] = 132.9
+	ST.Cycle()
+	assert lShown == []
+	lAll = list(ST.g_lTrace)
+	CLOCK[0] = 133.0
+	ST.Cycle()
+	assert [t[0] for t in lShown] == lAll[-15:]
+	lY = [t[1] for t in lShown]
+	assert len(lY) == 15
+	for i in range(15):
+		assert abs(lY[i] - (0.03 + 0.03 * i)) < 0.0001
+	assert abs(lY[-1] - 0.45) < 0.0001
+	assert lShown[0][2] == 15.0
+	assert ST.g_lTrace == []
+	CLOCK[0] = 170.0
+	ST.Cycle()
+	assert len(lShown) == 15	# shown once
+
+
+def test_trace_collapses_consecutive_identical_lines():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	ST.TraceAdd("KEY up g2")
+	assert ST.g_lTrace == ["t=0.0 KEY up g2"]
+	CLOCK[0] = 101.0
+	ST.TraceAdd("KEY up g2")
+	assert ST.g_lTrace == ["t=0.0 KEY up g2 x2"], ST.g_lTrace
+	assert ST.g_fTraceLast == 101.0
+	for i in range(4):
+		CLOCK[0] = 102.0 + i
+		ST.TraceAdd("KEY up g2")
+	assert ST.g_lTrace == ["t=0.0 KEY up g2 x6"], ST.g_lTrace
+	assert ST.g_fTraceLast == 105.0
+	# non-consecutive duplicates are kept
+	ST.TraceAdd("KEY dn g2")
+	ST.TraceAdd("KEY up g2")
+	assert len(ST.g_lTrace) == 3
+	assert ST.g_lTrace[2].endswith("KEY up g2") and "x" not in ST.g_lTrace[2]
+	# a new trace after clearing starts fresh
+	ST.ShowTrace()
+	ST.TraceAdd("KEY up g2")
+	assert len(ST.g_lTrace) == 1 and "x" not in ST.g_lTrace[0]
+
+
+def test_stop_line_carries_key_state():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	obj = type("O", (), {"CallNextHandler": lambda s, e: None})()
+	ST.Cycle()
+	ST.OnFireKey(obj, mock_app.Event(ST.GetFireEvents()[2][0], 1))
+	pSys.Release()
+	CLOCK[0] = 100.1
+	ST.Cycle()
+	assert len([s for s in ST.g_lTrace if "STOP g" in s and s.endswith("key=1")]) == 1, ST.g_lTrace
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	ST.Cycle()
+	ST.OnFireKey(obj, mock_app.Event(ST.GetFireEvents()[2][0], 1))
+	ST.OnFireKey(obj, mock_app.Event(ST.GetFireEvents()[2][0], 0))
+	ST.g_dAdded[(ST.g_iShipID, ST.GetFireEvents()[2][1])] = [4]	# the key-up forgot it: restore
+	pSys.Release()
+	CLOCK[0] = 100.1
+	ST.Cycle()
+	assert len([s for s in ST.g_lTrace if "STOP g" in s and s.endswith("key=0")]) == 1, ST.g_lTrace
+	ST.ForgetAll()
+	assert ST.g_dKeyHeld == {}
+
+
+def test_key_lines_with_debug_only():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	ST.OnFireKey(mock_app.Obj() if hasattr(mock_app, "Obj") else type("O", (), {"CallNextHandler": lambda s, e: None})(), mock_app.Event(App_FIRE(ST), 1))
+	ST.OnFireKey(type("O", (), {"CallNextHandler": lambda s, e: None})(), mock_app.Event(App_FIRE(ST), 0))
+	assert len(ST.g_lTrace) == 2
+	assert ST.g_lTrace[0].startswith("t=0.0 KEY dn g"), ST.g_lTrace
+	assert " KEY up g" in ST.g_lTrace[1], ST.g_lTrace
+	ST2, pSys2, lShown2, CLOCK2 = state_scene(0)
+	ST2.OnFireKey(type("O", (), {"CallNextHandler": lambda s, e: None})(), mock_app.Event(App_FIRE(ST2), 1))
+	assert ST2.g_lTrace == []
+
+
+def App_FIRE(ST):
+	return ST.GetFireEvents()[0][0]
+
+
+def test_stop_line_once_per_transition():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	ST.Cycle()
+	pSys.Release()
+	CLOCK[0] = 100.1
+	ST.Cycle()
+	ST.Cycle()
+	CLOCK[0] = 100.2
+	ST.Cycle()
+	assert len([s for s in ST.g_lTrace if "STOP g" in s]) == 1, ST.g_lTrace
+	assert lShown == []
+
+
+def test_trace_toggle_off_shows_and_clears():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	ST.Cycle()
+	ST.SetEnabled(0)
+	assert len(lShown) == 2
+	assert ST.g_lTrace == []
+
+
+def test_trace_empty_shows_nothing_and_cap_60():
+	ST, pSys, lShown, CLOCK = state_scene(1)
+	ST.ShowTrace()
+	assert lShown == []
+	for i in range(75):
+		ST.TraceAdd("x" + str(i))
+	assert len(ST.g_lTrace) == 60
+	assert ST.g_lTrace[-1].endswith("x74") and ST.g_lTrace[0].endswith("x15")
+
+
+def test_torpedo_no_free_tube_adds_nothing():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = torp_scene(core, ship)
+	pSys.lChildren = [mock_app.Tube(), mock_app.Tube()]
+	pSys.Press(main)
+	ST.Cycle()
+	assert pSys.ids() == [2]
+	assert calls("start") == []
+
+
+def test_torpedo_single_fire_never_lifted_or_restored():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = torp_scene(core, ship)
+	for iOrig in (0, 1):
+		pSys.pProp.iSingle = iOrig
+		pSys.Press(main)
+		ST.Cycle()
+		ST.Cycle()
+		assert pSys.ids() == [2, 4]
+		assert pSys.pProp.iSingle == iOrig
+		assert ST.g_dLifted == {}
+		assert calls("single") == []
+		ST.TurnOff()
+		assert pSys.pProp.iSingle == iOrig
+		assert calls("single") == []
+		assert pSys.ids() == [2]
+		ST.g_iOn = 1
+
+
+def test_torpedo_arc_error_adds_nothing_no_exception():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = torp_scene(core, ship)
+	pSys.lChildren[1].iArc = "raise"
+	pSys.Press(main)
+	ST.Cycle()
+	assert pSys.ids() == [2]
+	assert calls("start") == []
+
+
+def test_torpedo_bit_off_ignores_torpedo_groups():
+	# mask 5 = phasers + pulse
+	App, ST, core, ship = setup(iTech=5)
+	main, b, c, pSys = torp_scene(core, ship)
+	pSys.Press(main)
+	ST.Cycle()
+	assert pSys.ids() == [2]
+	assert calls("start") == []
+	# mask 2 = torpedoes only: they work
+	App, ST, core, ship = setup(iTech=2)
+	main, b, c, pSys = torp_scene(core, ship)
+	pSys.Press(main)
+	ST.Cycle()
+	assert pSys.ids() == [2, 4]
+
+
+def test_mixed_ship_groups_independent_and_toggle_off_clears_all():
+	App, ST, core, ship = setup()
+	main = enemy("Main", 2, 10.0)
+	b = enemy("B", 3, 20.0)
+	c = enemy("C", 4, -20.0)
+	core.g_pMission = mock_app.Mission([main, b, c])
+	ship.target = main
+	gp = ListGroup([ReachBank([20.0])], "gp")
+	gu = ListGroup([mock_app.Pulse()], "gu", 1)
+	gt = ListGroup([mock_app.Tube(), mock_app.Tube(mock_app.Point(-1.0, 0.0, 0.0))], "gt")
+	gt.torpedo = 1
+	ship.groups[0] = gp
+	ship.groups[1] = gu
+	ship.groups[2] = gt
+	# only the phaser and torpedo groups fire
+	gp.Press(main)
+	gt.Press(main)
+	ST.Cycle()
+	assert gp.ids() == [2, 3]
+	assert gt.ids() == [2, 4]
+	assert gu.ids() == []
+	# one group released: the other keeps its secondaries
+	gp.Release()
+	ST.Cycle()
+	assert gp.ids() == []
+	assert gt.ids() == [2, 4]
+	gp.Press(main)
+	ST.Cycle()
+	assert gp.ids() == [2, 3]
+	ST.TurnOff()
+	assert gp.ids() == [2]
+	assert gt.ids() == [2]
+	assert ST.g_dAdded == {}
+	assert ST.g_dLifted == {}
+
+
+NULL = type("O", (), {"CallNextHandler": lambda s, e: None})()
+
+
+REARM_DEFAULTS = []
+
+
+def rearm_scene(iDebug=0, iFwdReady=0, iAftReady=2):
+	"""Torpedo group (event group 2): forward tube at main/B, aft tube reaches C.
+	The key of group 2 is down and the group is not firing (it just stopped)."""
+	App, ST, core, ship = setup(Debug=iDebug)
+	REARM_DEFAULTS.append((ST.REARM_MAX, ST.REARM_MAX_TIME, ST.REARM_STALE))
+	ST.REARM_MAX = 6	# small limits keep the guard tests short
+	ST.REARM_MAX_TIME = 8.0
+	ST.REARM_STALE = 10.0
+	CLOCK = [100.0]
+	App.g_kUtopiaModule.GetGameTime = lambda: CLOCK[0]
+	main, b, c, pSys = torp_scene(core, ship)
+	pSys.lChildren[0].iReady = iFwdReady
+	pSys.lChildren[1].iReady = iAftReady
+	ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[2][0], 1))
+	return ST, ship, pSys, CLOCK, main
+
+
+def test_rearm_default_limits_fit_a_full_volley():
+	rearm_scene()
+	iMax, fTime, fStale = REARM_DEFAULTS[-1]
+	assert iMax >= 14 and fTime >= 15.0 and fStale > fTime
+
+
+def test_rearm_torpedo_key_held_order_and_secondary():
+	ST, ship, pSys, CLOCK, main = rearm_scene()
+	ST.Cycle()
+	assert [t[0] for t in LOG] == ["start", "force", "start"], LOG
+	assert LOG[0][2] == 2 and LOG[2][2] == 4
+	assert LOG[1][2] == 1
+	assert pSys.ids() == [2, 4]
+
+
+def test_rearm_not_for_phaser_or_pulse():
+	App, ST, core, ship = setup()
+	main = enemy("Main", 2, 10.0)
+	b = enemy("B", 3, 20.0)
+	core.g_pMission = mock_app.Mission([main, b])
+	ship.target = main
+	ship.groups[0] = ListGroup([ReachBank([20.0])], "gp")
+	ship.groups[1] = ListGroup([mock_app.Pulse()], "gu", 1)
+	for e in (0, 1):
+		ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[e][0], 1))
+	ST.Cycle()
+	assert calls("start") == []
+
+
+def test_rearm_not_when_key_up():
+	ST, ship, pSys, CLOCK, main = rearm_scene()
+	ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[2][0], 0))
+	ST.Cycle()
+	assert calls("start") == []
+
+
+def test_rearm_not_while_main_tubes_have_torpedoes():
+	ST, ship, pSys, CLOCK, main = rearm_scene(iFwdReady=1)
+	ST.Cycle()
+	assert calls("start") == []
+
+
+def test_rearm_not_without_free_ready_tube():
+	ST, ship, pSys, CLOCK, main = rearm_scene(iAftReady=0)
+	ST.Cycle()
+	assert calls("start") == []
+
+
+def test_rearm_not_without_wanted_secondary():
+	ST, ship, pSys, CLOCK, main = rearm_scene()
+	core = ST.g_pCore
+	core.g_pMission = mock_app.Mission([main, enemy("B", 3, 20.0)])	# nothing behind
+	ST.Cycle()
+	assert calls("start") == []
+
+
+def test_rearm_throttled_half_second():
+	ST, ship, pSys, CLOCK, main = rearm_scene()
+	ST.Cycle()
+	assert len(calls("start")) == 2
+	pSys.Release()
+	CLOCK[0] = 100.2
+	ST.Cycle()
+	assert len(calls("start")) == 2
+	CLOCK[0] = 100.5
+	ST.Cycle()
+	assert len(calls("start")) == 4
+	assert ST.g_dRearmAt != {}
+	ST.ForgetAll()
+	assert ST.g_dRearmAt == {} and ST.g_dNoRearm == {}
+
+
+def norearm(ST):
+	return [s for s in ST.g_lTrace if "NOREARM" in s]
+
+
+def test_norearm_reason_lines_once_per_transition():
+	ST, ship, pSys, CLOCK, main = rearm_scene(iDebug=1, iFwdReady=1)
+	ST.Cycle()
+	ST.Cycle()
+	assert len(norearm(ST)) == 1 and "why=fwdready" in norearm(ST)[0], ST.g_lTrace
+	pSys.lChildren[0].iReady = 0
+	pSys.lChildren[1].iReady = 0
+	ST.Cycle()
+	assert len(norearm(ST)) == 2 and "why=nofree" in norearm(ST)[1]
+	pSys.lChildren[1].iReady = 2
+	ST.Cycle()
+	assert len([s for s in ST.g_lTrace if "REARM g2 key=1 free rdy=2" in s and "NO" not in s]) == 1
+	pSys.Release()
+	CLOCK[0] = 100.2
+	ST.Cycle()
+	assert "why=throttle" in norearm(ST)[-1], ST.g_lTrace
+	# Debug off: no NOREARM lines at all
+	ST2, ship2, pSys2, CLOCK2, main2 = rearm_scene(iDebug=0, iFwdReady=1)
+	ST2.Cycle()
+	assert ST2.g_lTrace == []
+
+
+def test_norearm_nosec_reason():
+	ST, ship, pSys, CLOCK, main = rearm_scene(iDebug=1)
+	ST.g_pCore.g_pMission = mock_app.Mission([main, enemy("B", 3, 20.0)])
+	ST.Cycle()
+	assert "why=nosec" in norearm(ST)[0], ST.g_lTrace
+
+
+def test_key_trace_deduplicated_per_instant():
+	ST, ship, pSys, CLOCK, main = rearm_scene(iDebug=1)
+	for i in range(5):
+		ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[2][0], 1))
+	ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[2][0], 0))
+	lKeys = [s for s in ST.g_lTrace if "KEY" in s]
+	assert len(lKeys) == 2 and "x" not in lKeys[0].split("KEY")[1], ST.g_lTrace
+	assert ST.KeyHeld(2) == 0
+
+
+def rearm_n(ST, pSys, CLOCK, n, fStep=1.0):
+	"""n Cycles, each followed by a release (the group stops) and fStep seconds."""
+	for i in range(n):
+		ST.Cycle()
+		pSys.Release()
+		CLOCK[0] = CLOCK[0] + fStep
+
+
+def guard_lines(core, sWhy):
+	return [t for t in core.logs if t[1] == "REARM-GUARD g2 " + sWhy]
+
+
+def test_guard_cap_by_count_seventh_refused_logged_once():
+	ST, ship, pSys, CLOCK, main = rearm_scene(iDebug=1)
+	rearm_n(ST, pSys, CLOCK, 6)
+	assert len(calls("start")) == 12, LOG
+	assert ST.g_dRearmCnt[2] == 6
+	ST.Cycle()
+	pSys.Release()
+	ST.Cycle()
+	assert len(calls("start")) == 12
+	assert len(guard_lines(ST.g_pCore, "cap")) == 1, ST.g_pCore.logs
+
+
+def test_guard_cap_by_time():
+	ST, ship, pSys, CLOCK, main = rearm_scene()
+	CLOCK[0] = 109.0	# 9 s after the key down, 9 s after the last event (< stale)
+	ST.Cycle()
+	assert calls("start") == []
+	assert ST.KeyHeld(2) == 1	# the cap refuses but does not clear
+
+
+def test_guard_new_key_down_resets_counters():
+	ST, ship, pSys, CLOCK, main = rearm_scene()
+	rearm_n(ST, pSys, CLOCK, 6)
+	ST.Cycle()
+	assert len(calls("start")) == 12
+	# a repeated key down (key already down) does NOT restart the counters
+	iCnt = ST.g_dRearmCnt[2]
+	ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[2][0], 1))
+	assert ST.g_dRearmCnt[2] == iCnt and iCnt > 0
+	# a real new press (up, then down) does
+	ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[2][0], 0))
+	ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[2][0], 1))
+	assert ST.g_dRearmCnt[2] == 0 and ST.g_dPressAt[2] == CLOCK[0]
+	ST.Cycle()
+	assert len(calls("start")) == 14
+	# the time cap restarts too
+	pSys.Release()
+	ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[2][0], 0))
+	CLOCK[0] = CLOCK[0] + 9.0
+	ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[2][0], 1))
+	ST.Cycle()
+	assert len(calls("start")) == 16
+
+
+def test_guard_key_up_clears_press_numbers():
+	ST, ship, pSys, CLOCK, main = rearm_scene()
+	ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[2][0], 0))
+	assert ST.g_dPressAt == {} and ST.g_dRearmCnt == {} and ST.g_dPressTgt == {}
+
+
+def test_guard_target_change_clears_and_refuses():
+	ST, ship, pSys, CLOCK, main = rearm_scene(iDebug=1)
+	assert ST.g_dPressTgt[2] == 2
+	b = enemy("B", 3, 20.0)
+	ST.g_pCore.g_pMission = mock_app.Mission([main, b])
+	ship.target = b
+	ST.Cycle()
+	assert calls("start") == []
+	assert ST.g_dKeyHeld == {} and ST.g_dPressTgt == {}
+	assert len(guard_lines(ST.g_pCore, "target")) == 1, ST.g_pCore.logs
+	ship.target = main
+	pSys.Release()
+	ST.Cycle()
+	assert calls("start") == []
+
+
+def test_guard_target_stored_at_first_decision_when_no_main_at_key_down():
+	App, ST, core, ship = setup()
+	CLOCK = [100.0]
+	App.g_kUtopiaModule.GetGameTime = lambda: CLOCK[0]
+	main, b, c, pSys = torp_scene(core, ship)
+	ship.target = None
+	ST.OnFireKey(NULL, mock_app.Event(ST.GetFireEvents()[2][0], 1))
+	assert ST.g_dPressTgt == {}
+	ship.target = main
+	pSys.lChildren[0].iReady = 0
+	pSys.lChildren[1].iReady = 2
+	ST.g_dKeyHeld[2] = 1
+	ST.Cycle()
+	assert ST.g_dPressTgt[2] == 2
+
+
+def clear_scene(iDebug=0):
+	"""Held group 2, a first Cycle done (ship known) without re-arming."""
+	ST, ship, pSys, CLOCK, main = rearm_scene(iDebug, iFwdReady=1)
+	ST.Cycle()
+	assert calls("start") == [] and ST.KeyHeld(2) == 1
+	pSys.lChildren[0].iReady = 0
+	return ST, ship, pSys, CLOCK, main
+
+
+def assert_cleared(ST, pSys):
+	assert ST.g_dKeyHeld == {} and ST.g_dPressAt == {} and ST.g_dRearmCnt == {}
+	assert ST.g_dPressTgt == {} and ST.g_dFireAt == {}
+	pSys.Release()
+	ST.Cycle()
+	assert calls("start") == [], LOG
+
+
+def test_guard_clear_on_toggle_off():
+	ST, ship, pSys, CLOCK, main = clear_scene(1)
+	ST.TurnOff()
+	assert_cleared(ST, pSys)
+	assert len(guard_lines(ST.g_pCore, "cleared")) == 1
+
+
+def test_guard_clear_on_ship_change():
+	ST, ship, pSys, CLOCK, main = clear_scene()
+	AppMod = sys.modules["App"]
+	other = mock_app.Ship("Galaxy", 7)
+	ST.g_pCore.techs["Galaxy"] = {"SecondaryTarget": -1}
+	AppMod._player[0] = other
+	ST.Cycle()
+	assert ST.g_dKeyHeld == {}
+	AppMod._player[0] = ship
+	assert_cleared(ST, pSys)
+
+
+def test_guard_clear_on_dead_ship():
+	ST, ship, pSys, CLOCK, main = clear_scene()
+	ship.dead = 1
+	ST.Cycle()
+	assert ST.g_dKeyHeld == {}
+	ship.dead = 0
+	assert_cleared(ST, pSys)
+
+
+def test_guard_clear_on_no_main_target():
+	ST, ship, pSys, CLOCK, main = clear_scene()
+	ship.target = None
+	ST.Cycle()
+	assert ST.g_dKeyHeld == {}
+	ship.target = main
+	assert_cleared(ST, pSys)
+
+
+def test_guard_clear_on_red_alert_off():
+	ST, ship, pSys, CLOCK, main = clear_scene()
+	iOld = ship.alert
+	ship.alert = 0
+	ST.Cycle()
+	assert ST.g_dKeyHeld == {}
+	ship.alert = iOld
+	assert_cleared(ST, pSys)
+
+
+def test_guard_clear_on_cloak():
+	ST, ship, pSys, CLOCK, main = clear_scene()
+	ship.cloaked = 1
+	ST.Cycle()
+	assert ST.g_dKeyHeld == {}
+	ship.cloaked = 0
+	assert_cleared(ST, pSys)
+
+
+def test_guard_clear_on_tech_lost():
+	ST, ship, pSys, CLOCK, main = clear_scene()
+	ST.g_pCore.techs["Galaxy"] = {"SecondaryTarget": 0}
+	ST.Cycle()
+	assert ST.g_dKeyHeld == {}
+
+
+def test_guard_stale_no_event_for_10s():
+	ST, ship, pSys, CLOCK, main = rearm_scene(iDebug=1)
+	CLOCK[0] = 110.5
+	ST.Cycle()
+	assert calls("start") == []
+	assert ST.g_dKeyHeld == {}
+	assert len(guard_lines(ST.g_pCore, "stale")) == 1, ST.g_pCore.logs
+
+
+def test_guard_not_cleared_in_normal_firing_path():
+	ST, ship, pSys, CLOCK, main = rearm_scene()
+	ST.Cycle()
+	assert ST.KeyHeld(2) == 1 and len(calls("start")) == 2
+	ST.Cycle()	# the group is firing: nothing is cleared
+	assert ST.KeyHeld(2) == 1
+
+
+class FakeWeapon:
+	def __init__(self, pParent, sName="Fwd 1"):
+		self.pParent = pParent
+		self.sName = sName
+
+	def GetName(self):
+		return self.sName
+
+	def GetTargetID(self):
+		return 77
+
+	def GetParentShip(self):
+		return self.pParent
+
+
+class FakeFired:
+	def __init__(self, pWeapon):
+		self.pWeapon = pWeapon
+
+	def GetSource(self):
+		return self.pWeapon
+
+
+class Chain:
+	def __init__(self):
+		self.n = 0
+
+	def CallNextHandler(self, pEvent):
+		self.n = self.n + 1
+
+
+def test_fired_handler_logs_only_with_debug_and_chains():
+	for iDebug in (0, 1):
+		App, ST, core, ship = setup(Debug=iDebug)
+		App.g_kUtopiaModule.GetGameTime = lambda: 12.5
+		chain = Chain()
+		ST.OnWeaponFired(chain, FakeFired(FakeWeapon(ship)))
+		ST.OnWeaponFired(chain, FakeFired(FakeWeapon(mock_app.Ship("Other", 9))))
+		ST.OnWeaponFired(chain, "not an event")
+		assert chain.n == 3
+		lFired = [t[1] for t in core.logs if t[1].startswith("FIRED")]
+		if iDebug:
+			assert lFired == ["FIRED Fwd 1 tgt=77 t=12.50"], core.logs
+		else:
+			assert lFired == []
 
 
 def run():

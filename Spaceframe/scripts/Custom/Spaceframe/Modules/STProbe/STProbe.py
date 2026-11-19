@@ -22,9 +22,10 @@ PKG = "Custom.Spaceframe.Modules.STProbe.STProbe"
 KEY_HANDLER = PKG + ".OnKeyboard"
 FIRED_HANDLER = PKG + ".OnWeaponFired"
 TORP_HANDLER = PKG + ".OnTorpedoEntered"
+CANT_HANDLER = PKG + ".OnCantFire"
 
 TESTS = ("INFO", "MULTI_TORP", "FIRE_ONE", "TORP_RETARGET", "SINGLEFIRE_TORP",
-	"ARCFORMULA", "ALL")
+	"TORP_DUMB", "ARCFORMULA", "TORPARC", "ALL")
 
 # What ALL runs, back to back (TORP_RETARGET needs the user).
 ALL_TESTS = ("INFO", "SINGLEFIRE_TORP", "MULTI_TORP", "FIRE_ONE")
@@ -37,11 +38,13 @@ LOG_FILE = "STProbe_log.txt"	# appended to in the game's working directory
 HINT = {
 	"ALL": "A ahead, B to the side; torps loaded; press o, wait 1 min; o aborts",
 	"INFO": "no setup needed; prints weapon info. Press o",
-	"MULTI_TORP": "A ahead, B to the side; torps loaded; Auto Fire off; press o",
+	"MULTI_TORP": "A ahead, B to the side or behind; torps loaded; Auto Fire off; press o, wait 12 s",
+	"TORP_DUMB": "A ahead, B behind, torps loaded; press o",
 	"FIRE_ONE": "torps (or pulse) ready; press o, wait 6 s",
 	"TORP_RETARGET": "press o, then FIRE a torpedo at A within 20 s",
 	"SINGLEFIRE_TORP": "SINGLEFIRE on torpedoes; torps loaded; A ahead, B aside; press o, wait 20 s",
 	"ARCFORMULA": "pulse ship; optionally select a target; checks AutoFire's arc formula against IsInArc; press o",
+	"TORPARC": "torp ship; optionally select a target; checks the fixed 30 deg torpedo cone model against IsInArc/CanHit; press o",
 }
 
 # Weapon system kinds each test needs, in order of preference.
@@ -51,7 +54,9 @@ KINDS = {
 	"FIRE_ONE": ("torp", "pulse"),
 	"TORP_RETARGET": (),
 	"SINGLEFIRE_TORP": ("torp",),
+	"TORP_DUMB": ("torp",),
 	"ARCFORMULA": ("pulse",),
+	"TORPARC": ("torp",),
 	"ALL": (),
 }
 
@@ -654,27 +659,69 @@ def OnWeaponFired(pObject, pEvent):
 		pass
 
 
-def RecordFired(dRun, pEvent):
+def EventTube(dRun, pEvent):
+	# Index (in dRun["names"]) of this ship's weapon that is the event's source
+	# (matched by name); -1 when the source is not one of its weapons, -2 when
+	# the source cannot be read (unattributed).
 	pWeapon = Cast(dRun, "Weapon_Cast", Do(dRun, pEvent, "GetSource", (), None))
 	if pWeapon == None:
-		return
+		return (-2, None)
 	# Only this ship's weapons (unconfirmed call: if it fails, go by name).
 	tParent = CallM("GetParentShip", pWeapon, "GetParentShip", ())
 	if tParent[0] and (tParent[1] != None):
 		tID = CallM("GetObjID", tParent[1], "GetObjID", ())
 		if tID[0] and (tID[1] != dRun["ship"]):
-			return
+			return (-1, pWeapon)
 	sName = Do(dRun, pWeapon, "GetName", (), None)
 	for i in range(len(dRun["names"])):
 		if dRun["names"][i] == sName:
-			Bump(dRun["fired"], i, Code(Do(dRun, pWeapon, "GetTargetID", (), None), dRun))
-			return
+			return (i, pWeapon)
+	return (-1, pWeapon)
+
+
+def RecordFired(dRun, pEvent):
+	tEv = EventTube(dRun, pEvent)
+	i = tEv[0]
+	if i < 0:
+		if i == -2:
+			dRun["firedX"] = dRun["firedX"] + 1
+		return
+	Bump(dRun["fired"], i, Code(Do(dRun, tEv[1], "GetTargetID", (), None), dRun))
+	if not dRun["firstT"].has_key(i):
+		dRun["firstT"][i] = Now() - dRun["t0"]
+	if dRun["m2"]:
+		dRun["fired2"][i] = dRun["fired2"].get(i, 0) + 1
+
+
+def OnCantFire(pObject, pEvent):
+	try:
+		if g_dRun != None:
+			RecordCant(g_dRun, pEvent)
+	except:
+		Log("Cant-fire event error: " + ErrText())
+	try:
+		pObject.CallNextHandler(pEvent)
+	except:
+		pass
+
+
+def RecordCant(dRun, pEvent):
+	tEv = EventTube(dRun, pEvent)
+	i = tEv[0]
+	if i == -1:
+		return
+	if i == -2:
+		dRun["cantX"] = dRun["cantX"] + 1
+		return
+	dRun["cant"][i] = dRun["cant"].get(i, 0) + 1
 
 
 def OnTorpedoEntered(pObject, pEvent):
 	try:
 		if (g_dRun != None) and (g_dRun["name"] == "TORP_RETARGET") and g_dRun["armed"]:
 			Retarget(g_dRun, pEvent)
+		elif (g_dRun != None) and (g_dRun["name"] == "TORP_DUMB") and g_dRun["armed"]:
+			RetargetDumb(g_dRun, pEvent)
 	except:
 		Log("Torpedo event error: " + ErrText())
 	try:
@@ -712,6 +759,30 @@ def Retarget(dRun, pEvent):
 	dRun["t"] = Now()
 
 
+def RetargetDumb(dRun, pEvent):
+	# The torpedo launched by TORP_DUMB (parent = the ship): aim it at B and
+	# keep only its ID.
+	pTorp = Cast(dRun, "Torpedo_Cast", Do(dRun, pEvent, "GetDestination", (), None))
+	if pTorp == None:
+		return
+	if Do(dRun, pTorp, "GetParentID", (), None) != dRun["ship"]:
+		return		# somebody else's torpedo
+	dRun["armed"] = 0
+	dRun["tid"] = Do(dRun, pTorp, "GetObjID", (), None)
+	dRun["tev"] = Now()
+	dRun["tgtBefore"] = Code(Do(dRun, pTorp, "GetTargetID", (), None), dRun)
+	tSet = CallM("SetTarget", pTorp, "SetTarget", (dRun["idB"],))
+	if not tSet[0]:
+		AddError(dRun, "SetTarget " + tSet[1])
+	vZero = NewZero(dRun)
+	if vZero != None:
+		Do(dRun, pTorp, "SetTargetOffset", (vZero,), None)
+	dRun["tgtAfter"] = Code(Do(dRun, pTorp, "GetTargetID", (), None), dRun)
+	if not tSet[0]:
+		dRun["tgtAfter"] = dRun["tgtAfter"] + " (SetTarget FAILED)"
+	dRun["d0"] = TorpDist(dRun, pTorp)
+
+
 ###############################################################################
 #	Run engine
 ###############################################################################
@@ -733,7 +804,7 @@ def Precheck(sName):
 		pass
 	pA = None
 	pB = None
-	if (sName == "INFO") or (sName == "ARCFORMULA"):
+	if (sName == "INFO") or (sName == "ARCFORMULA") or (sName == "TORPARC"):
 		try:
 			pTarget = App.ShipClass_Cast(pShip.GetTarget())
 			if IsLive(pTarget):
@@ -769,7 +840,12 @@ def NewRun(sName, tPre):
 		"errors": [], "started": 0, "simul": 0, "names": [], "sample": 0,
 		"last": (0, 0, 0), "armed": 0, "lines": [], "w": None,
 		"snaps": [], "orig": None, "chgProp": 0, "chgMode": 0, "restored": "ok", "rtext": "",
-		"short": "", "drv": None, "maxl": 4, "base": sName, "vstate": ""}
+		"short": "", "drv": None, "maxl": 4, "base": sName, "vstate": "",
+		"firedX": 0, "firstT": {}, "m2": 0, "fired2": {}, "cant": {}, "cantX": 0, "t0": Now(),
+		"rdy0": {}, "rdy1": {}, "max0": {}, "fwd": [], "aft": [], "fwdEmpty": None,
+		"removed": None, "tid": None, "tev": 0.0, "tgtBefore": "?", "tgtAfter": "?",
+		"d0": None, "d2": None, "d4": None, "dlast": None, "dlastT": 0.0, "tube": -1, "dret": "?",
+		"pick": "", "deadline": 0.0, "tgone": None}
 	if BASES.has_key(sName):
 		dRun["base"] = BASES[sName]
 	try:
@@ -792,6 +868,9 @@ def Begin(sName):
 		return
 	if sName == "ARCFORMULA":
 		RunArc(pShip, tPre[2], tPre[4])
+		return
+	if sName == "TORPARC":
+		RunTorpArc(pShip, tPre[2], tPre[4])
 		return
 	if sName == "ALL":
 		StartAll()
@@ -934,6 +1013,18 @@ def Sample(dRun, pShip):
 	dRun["last"] = (iA, iB, iFiring)
 	if iA and iB:
 		dRun["simul"] = 1
+	if (dRun["base"] == "MULTI_TORP") and (dRun["fwdEmpty"] == None) and (len(dRun["fwd"]) > 0):
+		TrackFwd(dRun, lWeapons)
+
+
+def TrackFwd(dRun, lWeapons):
+	# Notes when every forward tube (reaches A) has no torpedo ready any more.
+	for i in dRun["fwd"]:
+		if i >= len(lWeapons):
+			return
+		if TubeReady(dRun, lWeapons[i]) != 0:
+			return
+	dRun["fwdEmpty"] = Now() - dRun["t0"]
 
 
 def Release(dRun):
@@ -1055,6 +1146,8 @@ def RunPhase(dRun, pShip, pA, pB):
 		PhaseFire(dRun, pShip, pA, pB, vZero)
 	elif sName == "TORP_RETARGET":
 		PhaseRetarget(dRun)
+	elif sName == "TORP_DUMB":
+		PhaseDumb(dRun, pShip, pA, pB, vZero)
 	elif sName == "SINGLEFIRE":
 		PhaseSingle(dRun, pShip, pA, pB, vZero)
 
@@ -1096,33 +1189,181 @@ def CacheWeapons(dRun, pShip, pA, pB, vZero):
 ###############################################################################
 #	Tests (each function handles every phase of its test)
 ###############################################################################
+MULTI_SECONDS = 12.0	# MULTI_TORP total hold time
+MULTI_PHASE2 = 6.0	# A is removed from the target list after this long
+
+
+def TubeReady(dRun, pWeapon):
+	# Torpedoes loaded in a tube, -1 when unreadable.
+	if pWeapon == None:
+		return -1
+	return Do(dRun, Cast(dRun, "TorpedoTube_Cast", pWeapon), "GetNumReady", (), -1)
+
+
+def ReadyMap(dRun, pSystem, sMethod):
+	# Tube index -> GetNumReady / GetMaxReady (-1 = unreadable).
+	dOut = {}
+	lWeapons = GetWeapons(dRun, pSystem)
+	for i in range(len(lWeapons)):
+		if lWeapons[i] == None:
+			dOut[i] = -1
+		else:
+			dOut[i] = Do(dRun, Cast(dRun, "TorpedoTube_Cast", lWeapons[i]), sMethod, (), -1)
+	return dOut
+
+
+def FiredCount(dFired, i):
+	iSum = 0
+	dCodes = dFired.get(i, {})
+	for sCode in dCodes.keys():
+		iSum = iSum + dCodes[sCode]
+	return iSum
+
+
+def SumCount(dMap, lIdx):
+	iSum = 0
+	for i in lIdx:
+		iSum = iSum + dMap.get(i, 0)
+	return iSum
+
+
+def SumFired(dFired, lIdx):
+	iSum = 0
+	for i in lIdx:
+		iSum = iSum + FiredCount(dFired, i)
+	return iSum
+
+
+def SumReady(dMap, lIdx):
+	# Total ready over the tubes; "?" when one of them could not be read.
+	iSum = 0
+	for i in lIdx:
+		iVal = dMap.get(i, -1)
+		if iVal < 0:
+			return "?"
+		iSum = iSum + iVal
+	return iSum
+
+
+def ReadyNum(dMap, lIdx):
+	# Like SumReady, but -1 for unknown (for the verdict).
+	tSum = SumReady(dMap, lIdx)
+	if tSum == "?":
+		return -1
+	return tSum
+
+
+def MultiVerdict(iAft, iAftFired, iAftRdy0, fFirst, fFwdEmpty, fRemoved, iCantAft):
+	# (word, detail). iAft = tubes that reach only B; fFirst = time of the first
+	# aft launch (None = none); fFwdEmpty / fRemoved = when the forward tubes ran
+	# dry / A left the list (None = never); iAftRdy0 = aft torpedoes loaded at
+	# the start (-1 unknown).
+	if iAft == 0:
+		return ("NOAFT", "no tube reaches only B")
+	if iAftFired == 0:
+		if iAftRdy0 == 0:
+			return ("NOTREADY", "aft tubes were empty")
+		if iCantAft > 0:
+			return ("CANT_FIRE", "aft tubes reported cant-fire, never launched")
+		return ("SILENT", "aft tubes never launched though ready")
+	if (fRemoved != None) and (fFirst >= fRemoved):
+		return ("STARVATION", "aft fired only after A was removed")
+	if (fFwdEmpty != None) and (fFirst >= fFwdEmpty - 0.5):
+		return ("STARVATION", "aft fired only after fwd rdy hit 0")
+	return ("INTERLEAVED", "aft fired while fwd were still ready")
+
+
+def FirstAft(dRun):
+	# Time (from the start) of the first launch of an aft tube, or None.
+	fBest = None
+	for i in dRun["aft"]:
+		if dRun["firstT"].has_key(i):
+			if (fBest == None) or (dRun["firstT"][i] < fBest):
+				fBest = dRun["firstT"][i]
+	return fBest
+
+
+def SecText(f):
+	if f == None:
+		return "none"
+	return "%.1fs" % f
+
+
+def MultiLines(dRun, dC, dSeen):
+	lFwd = dRun["fwd"]
+	lAft = dRun["aft"]
+	iFwd = SumFired(dRun["fired"], lFwd)
+	iAft = SumFired(dRun["fired"], lAft)
+	fFirst = FirstAft(dRun)
+	iCantAft = SumCount(dRun["cant"], lAft)
+	tV = MultiVerdict(len(lAft), iAft, ReadyNum(dRun["rdy0"], lAft), fFirst, dRun["fwdEmpty"], dRun["removed"], iCantAft)
+	dRun["short"] = tV[0]
+	sHead = "T3 TORP " + Verdict(dC) + " list A:" + dRun["in"][0] + " B:" + dRun["in"][1]
+	sHead = sHead + " onA:" + str(len(dC["onA"])) + " onB:" + str(len(dC["onB"])) + " simul:" + str(dC["simul"])
+	sHead = sHead + " rdy:" + str(dRun.get("ready", "?"))
+	sMain = "fwd tubes launched " + str(iFwd) + " (rdy " + str(SumReady(dRun["rdy0"], lFwd)) + "->" + str(SumReady(dRun["rdy1"], lFwd)) + ")"
+	sMain = sMain + ", only-B tubes launched " + str(iAft) + " (rdy " + str(SumReady(dRun["rdy0"], lAft)) + "->" + str(SumReady(dRun["rdy1"], lAft)) + ")"
+	sMain = sMain + ", first aft launch at t=" + SecText(fFirst)
+	sMain = sMain + ", cantfire fwd:" + str(SumCount(dRun["cant"], lFwd)) + " aft:" + str(iCantAft) + " ?:" + str(dRun["cantX"])
+	sPhase = "after A removed (t=" + SecText(dRun["removed"]) + ", A in list:" + str(dRun.get("listA2", "?")) + "): aft launches "
+	sPhase = sPhase + str(SumCount(dRun["fired2"], lAft)) + ", fwd launches " + str(SumCount(dRun["fired2"], lFwd))
+	sPhase = sPhase + "; fwd empty at t=" + SecText(dRun["fwdEmpty"]) + "; unattributed:" + str(dRun["firedX"])
+	sVerd = tV[0] + ": " + tV[1]
+	sPick = "both-reach picked A:" + str(len(dC["bothPickA"])) + " B:" + str(len(dC["bothPickB"])) + "  onlyB fired:" + str(len(dC["onlyBFired"])) + "/" + str(len(dC["onlyB"]))
+	return [sVerd, sMain, sPhase, sHead, sPick]
+
+
+def SplitTubes(dRun):
+	# Forward = tubes that reach A; aft = tubes that reach only B.
+	dRun["fwd"] = []
+	dRun["aft"] = []
+	for i in range(len(dRun["names"])):
+		tReach = dRun["reach"].get(i, (0, 0))
+		if tReach[0] == 1:
+			dRun["fwd"].append(i)
+		elif tReach[1] == 1:
+			dRun["aft"].append(i)
+
+
 def PhaseMulti(dRun, pShip, pA, pB, vZero):
 	if dRun["phase"] == 0:
 		CacheWeapons(dRun, pShip, pA, pB, vZero)
+		SplitTubes(dRun)
 		tIn = Multi(dRun, pShip, [pA, pB], vZero)
 		if tIn == None:
 			return
 		dRun["in"] = tIn
+		dRun["maxl"] = 4	# the rest (pick line, weapons) goes to the log file only
 		pSystem = GetSystem(dRun, pShip)
 		if pSystem != None:
 			dRun["ready"] = Do(dRun, Cast(dRun, "TorpedoSystem_Cast", pSystem), "GetNumReady", (), "?")
-		fWindow = g_fSample
-		if fWindow < 4.0:
-			fWindow = 4.0
-		dRun["t"] = Now() + fWindow
+			dRun["rdy0"] = ReadyMap(dRun, pSystem, "GetNumReady")
+			dRun["max0"] = ReadyMap(dRun, pSystem, "GetMaxReady")
+		dRun["t0"] = Now()
+		dRun["t"] = dRun["t0"] + MULTI_PHASE2
 		dRun["phase"] = 1
 		dRun["sample"] = 1
 		return
+	if dRun["phase"] == 1:
+		# Phase 2: A leaves the list, B stays, firing goes on.
+		pSystem = GetSystem(dRun, pShip)
+		if pSystem == None:
+			Abort("ABORT: weapon system gone")
+			return
+		Do(dRun, pSystem, "StopFiringAtTarget", (pA,), None)
+		Do(dRun, pSystem, "SetForceUpdate", (1,), None)
+		dRun["listA2"] = InList(dRun, pSystem, pA)
+		dRun["m2"] = 1
+		dRun["removed"] = Now() - dRun["t0"]
+		dRun["t"] = dRun["t0"] + MULTI_SECONDS
+		dRun["phase"] = 2
+		return
+	pSystem = GetSystem(dRun, pShip)
+	if pSystem != None:
+		dRun["rdy1"] = ReadyMap(dRun, pSystem, "GetNumReady")
 	dSeen = MergeSeen(dRun["seen"], dRun["fired"])
 	dC = Classify(dSeen, dRun["reach"], dRun["simul"])
-	dRun["short"] = FirstWord(Verdict(dC))
-	lLines = []
-	sPick = "both-reach picked A:" + str(len(dC["bothPickA"])) + " B:" + str(len(dC["bothPickB"]))
-	sHead = "T3 " + string.upper(dRun["kind"]) + " " + Verdict(dC) + " list A:" + dRun["in"][0] + " B:" + dRun["in"][1]
-	sHead = sHead + " onA:" + str(len(dC["onA"])) + " onB:" + str(len(dC["onB"])) + " simul:" + str(dC["simul"])
-	sHead = sHead + " rdy:" + str(dRun.get("ready", "?"))
-	lLines.append(sHead)
-	lLines.append(sPick + "  onlyB fired:" + str(len(dC["onlyBFired"])) + "/" + str(len(dC["onlyB"])))
+	lLines = MultiLines(dRun, dC, dSeen)
 	lLines = lLines + WeaponLine(dSeen, dRun["reach"])
 	Finish(lLines)
 
@@ -1342,6 +1583,173 @@ def PhaseRetarget(dRun):
 		Finish(["T10 TORP_RETARGET: no torpedo seen"])
 	else:
 		Finish(dRun["lines"])
+
+
+def AngleRaw(pTube, pA):
+	# Degrees between the tube's rough direction and the line tube -> A
+	# (frame of CalculateRoughDirection unconfirmed).
+	tD = TpVec(pTube.CalculateRoughDirection())
+	tT = TpVec(pTube.GetWorldLocation())
+	tA = TpVec(pA.GetWorldLocation())
+	tV = (tA[0] - tT[0], tA[1] - tT[1], tA[2] - tT[2])
+	fLenV = math.sqrt(TpDot(tV, tV))
+	fLenD = math.sqrt(TpDot(tD, tD))
+	if (fLenV <= 0.0) or (fLenD <= 0.0):
+		return 0.0
+	fCos = TpDot(tV, tD) / (fLenV * fLenD)
+	if fCos > 1.0:
+		fCos = 1.0
+	if fCos < -1.0:
+		fCos = -1.0
+	return math.acos(fCos) * 180.0 / math.pi
+
+
+def PickDumbTube(dRun, pSystem, pA, pB):
+	# (index, note) of the ready tube to FireDumb from; (None, reason) when no
+	# tube has a torpedo. Prefers CanHit(B)=1 and CanHit(A)=0.
+	lWeapons = GetWeapons(dRun, pSystem)
+	lReady = []
+	for i in range(len(lWeapons)):
+		if lWeapons[i] != None:
+			if TubeReady(dRun, lWeapons[i]) > 0:
+				lReady.append((i, Reach(dRun, lWeapons[i], "torp", pA, None), Reach(dRun, lWeapons[i], "torp", pB, None)))
+	if len(lReady) == 0:
+		return (None, "no tube has a torpedo ready")
+	for tR in lReady:
+		if (tR[1] == 0) and (tR[2] == 1):
+			return (tR[0], "tube " + str(tR[0]) + " CanHit B=1 A=0")
+	for tR in lReady:
+		if tR[1] == 0:
+			return (tR[0], "fallback: no tube hits only B; tube " + str(tR[0]) + " CanHit A=0 B=" + str(tR[2]))
+	iBest = lReady[0][0]
+	fBest = -1.0
+	for tR in lReady:
+		tAng = Call("angle", AngleRaw, (Cast(dRun, "TorpedoTube_Cast", lWeapons[tR[0]]), pA))
+		if tAng[0] and (tAng[1] > fBest):
+			fBest = tAng[1]
+			iBest = tR[0]
+	if fBest < 0.0:
+		return (iBest, "fallback: every tube reaches A; first ready tube " + str(iBest) + " (angle unreadable)")
+	return (iBest, "fallback: every tube reaches A; tube " + str(iBest) + " is " + ("%.0f" % fBest) + " deg off A")
+
+
+def TorpDist(dRun, pTorp):
+	# (distance to B, distance to A); None for one that cannot be measured.
+	lOut = []
+	for sKey in ("idB", "idA"):
+		pShip = None
+		try:
+			pShip = App.ShipClass_GetObjectByID(None, dRun[sKey])
+		except:
+			pShip = None
+		fDist = Distance(pTorp, pShip)
+		if (pShip == None) or (fDist >= 1.0e8):
+			fDist = None
+		lOut.append(fDist)
+	return (lOut[0], lOut[1])
+
+
+def FindTorp(dRun):
+	# The launched torpedo fetched again by its ID, or None (gone / unknown).
+	if dRun["tid"] == None:
+		return None
+	tR = Call("Torpedo_GetObjectByID", FindTorpRaw, (dRun["tid"],))
+	if tR[0]:
+		return tR[1]
+	return None
+
+
+def FindTorpRaw(iID):
+	# Torpedo_GetObjectByID (name follows ShipClass_GetObjectByID; unconfirmed).
+	return App.Torpedo_GetObjectByID(None, iID)
+
+
+def DumbVerdict(dB0, dB4, dA0, dA4, fLast):
+	# HOMING_B when B got >= 20% closer and A did not; fLast = seconds covered.
+	if (dB0 == None) or (dB4 == None) or (dB0 <= 0.0) or (fLast < 1.0):
+		return "INCONCLUSIVE"
+	if (dB0 - dB4) < 0.2 * dB0:
+		return "FAIL"
+	if (dA0 != None) and (dA4 != None) and (dA0 > 0.0) and ((dA0 - dA4) >= 0.2 * dA0):
+		return "INCONCLUSIVE"
+	return "HOMING_B"
+
+
+def DistText(f):
+	if f == None:
+		return "?"
+	return "%.0f" % f
+
+
+def DumbLines(dRun, fLast):
+	d0 = dRun["d0"]
+	d2 = dRun["d2"]
+	d4 = dRun["d4"]
+	if d0 == None:
+		d0 = (None, None)
+	if d2 == None:
+		d2 = (None, None)
+	if d4 == None:
+		d4 = (None, None)
+	sVerd = DumbVerdict(d0[0], d4[0], d0[1], d4[1], fLast)
+	dRun["short"] = sVerd
+	sGone = ""
+	if dRun["tgone"] != None:
+		sGone = " (torpedo gone at t+" + SecText(dRun["tgone"]) + ", last sample used)"
+	lLines = ["T11 TORP_DUMB " + sVerd + ": " + dRun["pick"] + sGone]
+	lLines.append("FireDumb " + dRun["dret"] + " from tube " + str(dRun["tube"]) + "; torp target " + dRun["tgtBefore"] + "->" + dRun["tgtAfter"] + " after SetTarget(B)")
+	lLines.append("dist B t0=" + DistText(d0[0]) + " t+2=" + DistText(d2[0]) + " t+4=" + DistText(d4[0]) + "  dist A t0=" + DistText(d0[1]) + " t+4=" + DistText(d4[1]))
+	return lLines
+
+
+def PhaseDumb(dRun, pShip, pA, pB, vZero):
+	# FireDumb from a tube that cannot hit A, redirect the torpedo to B on
+	# ET_TORPEDO_ENTERED_SET (OnTorpedoEntered), then sample its distances.
+	pSystem = GetSystem(dRun, pShip)
+	if pSystem == None:
+		Abort("ABORT: weapon system gone")
+		return
+	if dRun["phase"] == 0:
+		Do(dRun, pSystem, "StopFiring", (), None)
+		Do(dRun, pSystem, "ClearTargetList", (), None)
+		dRun["started"] = 1
+		dRun["maxl"] = 5
+		tPick = PickDumbTube(dRun, pSystem, pA, pB)
+		if tPick[0] == None:
+			Finish(["T11 TORP_DUMB: " + tPick[1]])
+			return
+		dRun["tube"] = tPick[0]
+		dRun["pick"] = tPick[1]
+		dRun["armed"] = 1
+		dRun["dret"] = FireWeapon(dRun, pSystem, tPick[0], "FireDumb")
+		dRun["deadline"] = Now() + 3.0
+		dRun["t"] = Now() + 0.25
+		dRun["phase"] = 1
+		return
+	if dRun["tid"] == None:
+		if Now() > dRun["deadline"]:
+			dRun["armed"] = 0
+			Finish(["T11 TORP_DUMB INCONCLUSIVE: FireDumb " + dRun["dret"] + " tube " + str(dRun["tube"]) + ", no torpedo event in 3 s", dRun["pick"]])
+			return
+		dRun["t"] = Now() + 0.25
+		return
+	fEl = Now() - dRun["tev"]
+	pTorp = FindTorp(dRun)
+	if pTorp == None:
+		dRun["tgone"] = fEl
+		dRun["d4"] = dRun["dlast"]
+		Finish(DumbLines(dRun, dRun["dlastT"]))
+		return
+	tNow = TorpDist(dRun, pTorp)
+	dRun["dlast"] = tNow
+	dRun["dlastT"] = fEl
+	if (dRun["d2"] == None) and (fEl >= 2.0):
+		dRun["d2"] = tNow
+	if fEl >= 4.0:
+		dRun["d4"] = tNow
+		Finish(DumbLines(dRun, fEl))
+		return
+	dRun["t"] = Now() + 0.25
 
 
 def RunInfo(pShip, pA):
@@ -1569,12 +1977,253 @@ def RunArc(pShip, pA, eGroup):
 
 
 ###############################################################################
+#	TORPARC: the torpedo tube arc model from the exe analysis. A FIXED cone,
+#	+-30 deg on two axes, not read from any property. Inside iff
+#	dot(D, Fwd) > 0 and atan2(D.Right, D.Fwd) and atan2(D.Up, D.Fwd) are both
+#	within +-TORP_LIM, D = point - tube world position. Also asks whether
+#	CanHit agrees with IsInArc for the selected target. Nothing is fired.
+###############################################################################
+TORP_LIM = 0.523598
+TORP_ANGLES = ((0, 0), (27, 0), (-27, 0), (33, 0), (-33, 0), (0, 27), (0, -27), (0, 33), (0, -33), (27, 27))
+TORP_COMBOS = (("A", 1), ("A", -1), ("B", 1), ("B", -1))
+
+
+def TpVec(p):
+	# Any vector wrapper (TGPoint3, NiPoint3, tuple) as a tuple of 3 floats.
+	if type(p) == type(()):
+		return (float(p[0]), float(p[1]), float(p[2]))
+	try:
+		return (float(p.GetX()), float(p.GetY()), float(p.GetZ()))
+	except:
+		pass
+	try:
+		return (float(p.x_get()), float(p.y_get()), float(p.z_get()))
+	except:
+		pass
+	return (float(p.x), float(p.y), float(p.z))
+
+
+def TpStage(sStage, fCall, tArgs):
+	# (1, value) or (0, "stage=<name> <exception>"): says WHICH step failed.
+	try:
+		return (1, apply(fCall, tArgs))
+	except:
+		return (0, "stage=" + sStage + " " + Short(ErrText(), 70))
+
+
+def TpRot(pShip, tLocal):
+	# A local vector (3 floats) in world axes: a FRESH TGPoint3 built with
+	# SetXYZ, the ship's world rotation applied (AutoFire's Solution.Rotate).
+	vCopy = App.TGPoint3()
+	vCopy.SetXYZ(tLocal[0], tLocal[1], tLocal[2])
+	vCopy.MultMatrixLeft(pShip.GetWorldRotation())
+	return TpVec(vCopy)
+
+
+def TpGetLocal(pTube, sMethod):
+	return TpVec(getattr(pTube, sMethod)())
+
+
+def TpDot(a, b):
+	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def TpCross(a, b):
+	return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def TpComb(fA, tA, fB, tB, fC, tC):
+	return (fA * tA[0] + fB * tB[0] + fC * tC[0], fA * tA[1] + fB * tB[1] + fC * tC[1], fA * tA[2] + fB * tB[2] + fC * tC[2])
+
+
+def TpModel(tD, tFwd, tRight, tUp):
+	# (inside, width angle, height angle) of the offset tD; angles None behind.
+	fF = TpDot(tD, tFwd)
+	if fF <= 0.0:
+		return (0, None, None)
+	fW = math.atan2(TpDot(tD, tRight), fF)
+	fH = math.atan2(TpDot(tD, tUp), fF)
+	iIn = 0
+	if (abs(fW) <= TORP_LIM) and (abs(fH) <= TORP_LIM):
+		iIn = 1
+	return (iIn, fW, fH)
+
+
+def TpSpecs():
+	# (label, forward, right, up) of the probe points; angles in degrees.
+	lSpecs = []
+	for tA in TORP_ANGLES:
+		sLabel = str(tA[0]) + "," + str(tA[1])
+		lSpecs.append((sLabel, 1.0, math.tan(tA[0] * App.PI / 180.0), math.tan(tA[1] * App.PI / 180.0)))
+	lSpecs.append(("behind", -1.0, 0.0, 0.0))
+	lSpecs.append(("df0", 0.0, 1.0, 0.0))
+	return lSpecs
+
+
+def TpOrigin(pShip, pTube, sMode):
+	# Candidate A: the tube's own GetWorldLocation(). Candidate B: the ship's
+	# location plus the tube's local position rotated by the ship.
+	if sMode == "B":
+		tShip = TpVec(pShip.GetWorldLocation())
+		tOff = TpRot(pShip, TpGetLocal(pTube, "GetPosition"))
+		return (tShip[0] + tOff[0], tShip[1] + tOff[1], tShip[2] + tOff[2])
+	return TpVec(pTube.GetWorldLocation())
+
+
+def TpNum(f):
+	if f == None:
+		return "behind"
+	return "%.1f" % (f * 180.0 / App.PI)
+
+
+def TpPoint(tW, tDir, fDist):
+	# A world TGPoint3 at fDist from tW along tDir.
+	fLen = math.sqrt(TpDot(tDir, tDir))
+	if fLen <= 0.0:
+		fLen = 1.0
+	vPoint = App.TGPoint3()
+	vPoint.SetXYZ(tW[0] + tDir[0] * fDist / fLen, tW[1] + tDir[1] * fDist / fLen, tW[2] + tDir[2] * fDist / fLen)
+	return vPoint
+
+
+def TpProbe(dTmp, pShip, pTube, tFwd, tRight, tUp, lSpecs):
+	# Scores every (candidate, up sign) against the game's IsInArc. Returns
+	# (counts by combo, first mismatch text, best combo).
+	fDist = ArcDistance()
+	dCount = {}
+	sMiss = ""
+	for tCombo in TORP_COMBOS:
+		dCount[tCombo] = 0
+	for sMode in ("A", "B"):
+		tOrg = TpStage("origin", TpOrigin, (pShip, pTube, sMode))
+		if not tOrg[0]:
+			if sMiss == "":
+				sMiss = sMode + " " + tOrg[1]
+			continue
+		tW = tOrg[1]
+		for tSpec in lSpecs:
+			tDir = TpComb(tSpec[1], tFwd, tSpec[2], tRight, tSpec[3], tUp)
+			tPt = TpStage("point", TpPoint, (tW, tDir, fDist))
+			if not tPt[0]:
+				if sMiss == "":
+					sMiss = sMode + " " + tPt[1]
+				continue
+			vPoint = tPt[1]
+			iGame = None
+			tR = CallM("IsInArc", pTube, "IsInArc", (vPoint,))
+			if tR[0]:
+				iGame = int(tR[1] != 0)
+			else:
+				AddError(dTmp, "IsInArc " + tR[1])
+			tD = (vPoint.GetX() - tW[0], vPoint.GetY() - tW[1], vPoint.GetZ() - tW[2])
+			for iSign in (1, -1):
+				tModel = TpModel(tD, tFwd, tRight, TpComb(float(iSign), tUp, 0.0, tUp, 0.0, tUp))
+				if (iGame != None) and (tModel[0] == iGame):
+					dCount[(sMode, iSign)] = dCount[(sMode, iSign)] + 1
+				elif sMiss == "":
+					sMiss = sMode + " " + tSpec[0] + " ours/game " + str(tModel[0]) + "/" + str(iGame)
+	tBest = TORP_COMBOS[0]
+	for tCombo in TORP_COMBOS:
+		if dCount[tCombo] > dCount[tBest]:
+			tBest = tCombo
+	return (dCount, sMiss, tBest)
+
+
+def TpCallNum(dTmp, pTube, sMethod, vPoint):
+	# The call's answer as text, "E" when it raises (no loaded torpedo, ...).
+	tR = CallM(sMethod, pTube, sMethod, (vPoint,))
+	if tR[0]:
+		return str(tR[1])
+	AddError(dTmp, sMethod + " " + tR[1])
+	return "E"
+
+
+def TpTargetLine(dTmp, pShip, pTube, i, pA, tBest, tFwd, tRight, tUp):
+	vLoc = Do(dTmp, pA, "GetWorldLocation", (), None)
+	if vLoc == None:
+		return "t" + str(i) + " tgt E: no location"
+	tOrg = TpStage("origin", TpOrigin, (pShip, pTube, tBest[0]))
+	if not tOrg[0]:
+		return "t" + str(i) + " tgt ERR " + tOrg[1]
+	tW = tOrg[1]
+	tT = TpVec(vLoc)
+	tD = (tT[0] - tW[0], tT[1] - tW[1], tT[2] - tW[2])
+	tUpBest = TpComb(float(tBest[1]), tUp, 0.0, tUp, 0.0, tUp)
+	tModel = TpModel(tD, tFwd, tRight, tUpBest)
+	return "t" + str(i) + " tgt aw=" + TpNum(tModel[1]) + " ah=" + TpNum(tModel[2]) + "deg model=" + str(tModel[0]) + " IsInArc=" + TpCallNum(dTmp, pTube, "IsInArc", vLoc) + " CanHit=" + TpCallNum(dTmp, pTube, "CanHit", vLoc)
+
+
+def TpTubeLines(dTmp, pShip, pTube, i, pA):
+	lSpecs = TpSpecs()
+	pPrefix = "t" + str(i) + " ERR "
+	tLocF = TpStage("read-direction", TpGetLocal, (pTube, "GetDirection"))
+	if not tLocF[0]:
+		return [pPrefix + tLocF[1]]
+	tLocR = TpStage("read-right", TpGetLocal, (pTube, "GetRight"))
+	if not tLocR[0]:
+		return [pPrefix + tLocR[1]]
+	tRotF = TpStage("rotate", TpRot, (pShip, tLocF[1]))
+	if not tRotF[0]:
+		return [pPrefix + tRotF[1]]
+	tRotR = TpStage("rotate", TpRot, (pShip, tLocR[1]))
+	if not tRotR[0]:
+		return [pPrefix + tRotR[1]]
+	tFwd = tRotF[1]
+	tRight = tRotR[1]
+	tUp = TpCross(tRight, tFwd)
+	tProbe = TpProbe(dTmp, pShip, pTube, tFwd, tRight, tUp, lSpecs)
+	lParts = []
+	for tCombo in TORP_COMBOS:
+		sSign = "+"
+		if tCombo[1] < 0:
+			sSign = "-"
+		lParts.append("cand" + tCombo[0] + "/up" + sSign + " " + str(tProbe[0][tCombo]) + "/" + str(len(lSpecs)))
+	sLine = "t" + str(i) + " " + string.join(lParts, ", ")
+	if tProbe[1] != "":
+		sLine = sLine + " | first miss " + tProbe[1]
+	lLines = [sLine]
+	if pA != None:
+		lLines.append(TpTargetLine(dTmp, pShip, pTube, i, pA, tProbe[2], tFwd, tRight, tUp))
+	return lLines
+
+
+def TorpArcLines(pShip, pA, eGroup):
+	dTmp = {"errors": []}
+	pSystem = Do(dTmp, pShip, "GetWeaponSystemGroup", (eGroup,), None)
+	lLines = ["TORPARC torpedo cone +-30 deg, 12 points at 5 km per tube"]
+	if pA == None:
+		lLines.append("no target selected: only the points are checked")
+	lWeapons = GetWeapons(dTmp, pSystem)
+	for i in range(len(lWeapons)):
+		pTube = None
+		if lWeapons[i] != None:
+			pTube = Cast(dTmp, "TorpedoTube_Cast", lWeapons[i])
+		if pTube == None:
+			lLines.append("t" + str(i) + " E: not a TorpedoTube")
+		else:
+			try:
+				lLines = lLines + TpTubeLines(dTmp, pShip, pTube, i, pA)
+			except:
+				lLines.append("t" + str(i) + " ERR stage=other " + Short(ErrText(), 60))
+	for sError in dTmp["errors"][:2]:
+		lLines.append("ERR " + Short(sError, 60))
+	return lLines
+
+
+def RunTorpArc(pShip, pA, eGroup):
+	lLines = TorpArcLines(pShip, pA, eGroup)
+	g_dResults["TORPARC"] = lLines
+	sLog = WriteLog("TORPARC", lLines)
+	Show(lLines[:MAX_LINES - 1] + [sLog])
+
+
+###############################################################################
 #	Lifecycle
 ###############################################################################
 def GetHandlerEvents():
 	# (event type, handler) pairs registered on the mission.
 	lEvents = []
-	for tEntry in (("ET_WEAPON_FIRED", FIRED_HANDLER), ("ET_TORPEDO_ENTERED_SET", TORP_HANDLER)):
+	for tEntry in (("ET_WEAPON_FIRED", FIRED_HANDLER), ("ET_TORPEDO_ENTERED_SET", TORP_HANDLER), ("ET_CANT_FIRE", CANT_HANDLER)):
 		eType = getattr(App, tEntry[0], None)
 		if eType != None:
 			lEvents.append((eType, tEntry[1]))

@@ -18,7 +18,7 @@ def make_config(**kw):
 	c.Interval = 0.2
 	c.MaxCandidates = 4
 	c.SecondaryRange = 100
-	c.SecondaryTorpedoMinSolution = 70
+	c.SecondaryTorpedoRange = 30
 	c.Debug = 0
 	c.ToggleKey = "J"
 	c.StartEnabled = 1
@@ -64,7 +64,8 @@ def test_start_twice_then_stop_registers_once():
 	App, ST, core, ship = setup()
 	ST.Start(core)
 	ST.Start(core)
-	assert len(App.g_kEventManager.handlers) == 3
+	assert len(App.g_kEventManager.handlers) == 4	# 3 fire keys + weapon fired
+	assert (App.ET_WEAPON_FIRED, ST.g_pMission, ST.FIRED_HANDLER) in App.g_kEventManager.handlers
 	assert active_timers() == 1
 	assert App._top.handlers == [(App.ET_KEYBOARD, ST.KEY_HANDLER)]
 	assert len(App._tcw.menu.children) == 1

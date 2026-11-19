@@ -1,7 +1,7 @@
 Spaceframe v0.6 - lightweight module framework for Bridge Commander
 ====================================================================
 Included modules: MV Shields (Multivectral Shields) v0.7, Ablative Armor v1.6,
-Status HUD v0.12, Auto Fire v0.4, Secondary Target v0.2
+Status HUD v0.12, Auto Fire v0.4, Secondary Target v0.3
 
   [EN] English ........ section 1
   [ES] Espanol ........ seccion 2
@@ -38,7 +38,11 @@ Modules             - modules are enabled automatically; set one to 0 to
                       disable it, e.g. "MVShields": 0
 Interval            - time between timer cycles (default 0.25 s)
 EnableInMultiplayer - 1 = also run in multiplayer (may desync)
-Debug               - 1 = show messages in the Test Mode console
+Debug               - 1 = write Spaceframe_debug.log in the game folder (needs the
+                      optional "fileio" engine patch, see "Engine patches"; without
+                      it one banner says the log is unavailable). Max 5000 lines
+                      per session, each stamped with the game time. Leave it 0
+                      for normal play.
 In every Config.py, percentages are written from 0 to 100 (50 = 50%), and
 on/off settings as 1 or 0.
 
@@ -213,19 +217,50 @@ Only for the player's ship, and only if it has "SecondaryTarget" in Ships.py.
   dies or the technology is lost. Switching OFF also removes the secondary
   targets.
 - Weapons (Ships.py number or Config): 1 phasers, 2 torpedoes, 4 pulse
-  weapons. Torpedoes are not active yet (phase 2): the bit is accepted but
-  does nothing for now.
-- Optional engine patch (stbc.exe): one weapon bank per target. The game itself
-  only knows "one bank at a time"; with the patch, banks that reach different
-  targets fire together but two banks never share the same target. Apply with
-  "python tools/exe_patch.py apply" (hash-checked, keeps stbc.exe.orig-<hash>),
-  undo with "python tools/exe_patch.py revert". It affects every ship of the
-  game, AI included, and works only on the build it checks for. The module
-  works without it (several banks may then shoot the same target).
+  weapons.
+- Torpedoes: the tubes that cannot reach your main target (it is outside
+  their fixed 30 degree cone) shoot at the other enemies they reach, within
+  SecondaryTorpedoRange km (30; 0 = no limit). The game launches one torpedo
+  every 0.5 s per system, in turn, so the secondary ones wait their turn and
+  the main target goes first. Torpedo single fire is left as the ship has it.
+- Torpedoes with manual fire: while you hold the fire key the game only keeps
+  the torpedo group firing in short windows (one launch per window) and stops
+  it when the forward tubes run empty, even with the key held. The module
+  re-arms the group while the key is held, so the tubes that reach your main
+  target fire there and the free tubes launch at the secondary targets (e.g.
+  7 forward tubes at the main target, then the 7 aft tubes at a secondary).
+  Safety limits: at most 20 re-arms or 20 s per key press, only while the main
+  target stays the same; every release of the key clears it.
+- Auto Fire spreads phasers and pulse weapons over the secondary targets, but
+  it does NOT send torpedoes to secondary targets: it fires whole volleys at
+  the main target of the moment (not implemented yet). For torpedoes at
+  secondary targets, fire by hand.
+- The optional engine patches (one bank per target, log file) are described
+  in "Engine patches" below. The module works without them (several banks may
+  then shoot the same target, and there is no log file).
 Settings: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
 - ToggleKey (J), StartEnabled (1), Weapons (7), Interval (0.2 s),
-  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoMinSolution (70,
-  for phase 2), Debug (0). Read once when a battle starts.
+  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoRange (30 km),
+  Debug (0). Read once when a battle starts. With Debug = 1 (and the "fileio"
+  patch) the module writes its trace to Spaceframe_debug.log in the game folder.
+
+Engine patches (stbc.exe, optional)
+-----------------------------------
+Managed with "python tools/exe_patch.py status|apply|revert|verify" (needs
+Python with capstone, pefile and keystone). Each patch is hash-checked, works
+only on the build it checks for and keeps a backup stbc.exe.orig-<hash>. Close
+the game first. Use --patch NAME to pick one; "revert --all" undoes every
+patch; "status" lists both.
+- onebank (default when no name is given): one weapon bank per target. The game
+  itself only knows "one bank at a time"; with the patch, banks that reach
+  different targets fire together but two banks never share the same target.
+  Affects every ship of the game, AI included.
+- fileio: lets Python scripts open files. The game blocks it ("Securelevel
+  prevents file IO"); this patch is what allows Spaceframe_debug.log (Debug =
+  1). Apply with "python tools/exe_patch.py apply --patch fileio", undo with
+  "revert --patch fileio". SECURITY: while it is applied, ANY script of the
+  game or of other mods can read and write files; apply it only if you trust
+  everything you installed, and revert it when you no longer need the log.
 
 Which ship name to use
 ----------------------
@@ -306,7 +341,11 @@ Modules             - los modulos se activan automaticamente; ponga 0 para
                       desactivar uno, p. ej. "MVShields": 0
 Interval            - tiempo entre ciclos del temporizador (por defecto 0,25 s)
 EnableInMultiplayer - 1 = tambien funciona en multijugador (puede desincronizar)
-Debug               - 1 = muestra mensajes en la consola del Test Mode
+Debug               - 1 = escribe Spaceframe_debug.log en la carpeta del juego
+                      (necesita el parche opcional "fileio" del motor, vea
+                      "Parches del motor"; sin el, un aviso dice que el log no
+                      esta disponible). Maximo 5000 lineas por sesion, cada una
+                      con la hora del juego. Dejelo en 0 para jugar normal.
 En todos los Config.py, los porcentajes se escriben de 0 a 100 (50 = 50%), y
 las opciones de activar/desactivar como 1 o 0.
 
@@ -491,20 +530,55 @@ las armas que lo alcanzan. Solo para la nave del jugador, y solo si tiene
   nave, cuando la nave muere o al perder la tecnologia. Al apagar tambien se
   quitan los objetivos secundarios.
 - Weapons (numero de Ships.py o Config): 1 phasers, 2 torpedos, 4 armas de
-  pulso. Los torpedos todavia no estan activos (fase 2): el bit se acepta
-  pero por ahora no hace nada.
-- Parche opcional del motor (stbc.exe): un banco de armas por objetivo. El juego
-  solo conoce "un banco a la vez"; con el parche, los bancos que alcanzan
-  objetivos distintos disparan juntos, pero dos bancos nunca comparten el mismo
-  objetivo. Se aplica con "python tools/exe_patch.py apply" (comprueba el hash,
-  guarda stbc.exe.orig-<hash>) y se deshace con "python tools/exe_patch.py revert".
-  Afecta a todas las naves del juego, tambien las de la IA, y solo sirve para
-  la version que comprueba. El modulo funciona sin el (varios bancos pueden
-  disparar al mismo objetivo).
+  pulso.
+- Torpedos: los tubos que no alcanzan su objetivo principal (esta fuera de su
+  cono fijo de 30 grados) disparan a los otros enemigos que si alcanzan, a
+  SecondaryTorpedoRange km o menos (30; 0 = sin limite). El juego lanza un
+  torpedo cada 0,5 s por sistema, por turnos: los secundarios esperan su
+  turno y el objetivo principal va primero. El single fire de los torpedos se
+  deja como lo define la nave.
+- Torpedos con disparo manual: mientras mantiene la tecla de disparo, el juego
+  solo mantiene el grupo de torpedos disparando en ventanas cortas (un
+  lanzamiento por ventana) y lo detiene cuando los tubos de proa se vacian,
+  aunque la tecla siga apretada. El modulo vuelve a armar el grupo mientras la
+  tecla esta apretada: los tubos que alcanzan su objetivo principal disparan
+  alli y los tubos libres lanzan a los objetivos secundarios (p. ej. 7 tubos de
+  proa al principal y despues los 7 de popa a un secundario). Limites de
+  seguridad: como maximo 20 rearmados o 20 s por pulsacion, solo mientras el
+  objetivo principal sea el mismo; cada vez que suelta la tecla se limpia.
+- El Auto Fire reparte phasers y armas de pulso entre los objetivos
+  secundarios, pero NO manda torpedos a objetivos secundarios: dispara
+  salvas completas al objetivo principal del momento (aun no implementado).
+  Para torpedos a objetivos secundarios, dispare a mano.
+- Los parches opcionales del motor (un banco por objetivo, archivo de log) se
+  describen en "Parches del motor" mas abajo. El modulo funciona sin ellos
+  (varios bancos pueden disparar al mismo objetivo, y no hay archivo de log).
 Configuracion: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
 - ToggleKey (J), StartEnabled (1), Weapons (7), Interval (0,2 s),
-  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoMinSolution (70,
-  para la fase 2), Debug (0). Se leen una vez al empezar la batalla.
+  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoRange (30 km),
+  Debug (0). Se leen una vez al empezar la batalla. Con Debug = 1 (y el parche
+  "fileio") el modulo escribe su traza en Spaceframe_debug.log, en la carpeta
+  del juego.
+
+Parches del motor (stbc.exe, opcionales)
+----------------------------------------
+Se gestionan con "python tools/exe_patch.py status|apply|revert|verify"
+(necesita Python con capstone, pefile y keystone). Cada parche comprueba el
+hash, sirve solo para la build que verifica y guarda una copia
+stbc.exe.orig-<hash>. Cierre el juego antes. Use --patch NOMBRE para elegir
+uno; "revert --all" deshace todos; "status" lista ambos.
+- onebank (por defecto si no se da nombre): un banco de armas por objetivo. El
+  juego solo conoce "un banco a la vez"; con el parche, los bancos que
+  alcanzan objetivos distintos disparan juntos, pero dos bancos nunca
+  comparten el mismo objetivo. Afecta a todas las naves del juego, tambien las
+  de la IA.
+- fileio: permite que los scripts Python abran archivos. El juego lo bloquea
+  ("Securelevel prevents file IO"); este parche es lo que permite
+  Spaceframe_debug.log (Debug = 1). Se aplica con "python tools/exe_patch.py
+  apply --patch fileio" y se deshace con "revert --patch fileio". SEGURIDAD:
+  mientras este aplicado, CUALQUIER script del juego o de otros mods puede leer
+  y escribir archivos; apliquelo solo si confia en todo lo que instalo, y
+  deshagalo cuando ya no necesite el log.
 
 Que nombre de nave usar
 -----------------------
@@ -585,7 +659,11 @@ Modules             - os modulos sao ligados automaticamente; coloque 0 para
                       desligar um, ex. "MVShields": 0
 Interval            - tempo entre os ciclos do timer (padrao 0,25 s)
 EnableInMultiplayer - 1 = funciona tambem no multiplayer (pode dessincronizar)
-Debug               - 1 = mostra mensagens no console do Test Mode
+Debug               - 1 = grava Spaceframe_debug.log na pasta do jogo (precisa do
+                      patch opcional "fileio" do motor, veja "Patches do
+                      motor"; sem ele, um aviso diz que o log nao esta
+                      disponivel). Maximo 5000 linhas por sessao, cada uma com
+                      a hora do jogo. Deixe em 0 para jogar normal.
 Em todos os Config.py, porcentagens sao escritas de 0 a 100 (50 = 50%), e
 as opcoes de ligar/desligar como 1 ou 0.
 
@@ -762,19 +840,54 @@ que o alcancam. So para a nave do jogador, e so se ela tiver
   nave morre ou ao perder a tecnologia. Ao desligar, os alvos secundarios
   tambem sao retirados.
 - Weapons (numero do Ships.py ou Config): 1 phasers, 2 torpedos, 4 armas de
-  pulso. Os torpedos ainda nao estao ativos (fase 2): o bit e aceito mas por
-  enquanto nao faz nada.
-- Patch opcional do motor (stbc.exe): um banco de armas por alvo. O jogo so
-  conhece "um banco por vez"; com o patch, bancos que alcancam alvos diferentes
-  atiram juntos, mas dois bancos nunca dividem o mesmo alvo. Aplique com
-  "python tools/exe_patch.py apply" (confere o hash, guarda stbc.exe.orig-<hash>)
-  e desfaca com "python tools/exe_patch.py revert". Afeta todas as naves do
-  jogo, inclusive as da IA, e so vale para a build que ele confere. O modulo
-  funciona sem ele (varios bancos podem atirar no mesmo alvo).
+  pulso.
+- Torpedos: os tubos que nao alcancam o alvo principal (ele esta fora do cone
+  fixo de 30 graus deles) atiram nos outros inimigos que alcancam, a
+  SecondaryTorpedoRange km ou menos (30; 0 = sem limite). O jogo lanca um
+  torpedo a cada 0,5 s por sistema, em revezamento: os secundarios esperam a
+  vez e o alvo principal vai primeiro. O single fire dos torpedos fica como a
+  nave define.
+- Torpedos com disparo manual: enquanto voce segura a tecla de disparo, o jogo
+  so mantem o grupo de torpedos atirando em janelas curtas (um lancamento por
+  janela) e o para quando os tubos de proa esvaziam, mesmo com a tecla
+  segurada. O modulo rearma o grupo enquanto a tecla esta segurada: os tubos
+  que alcancam o alvo principal atiram nele e os tubos livres lancam nos alvos
+  secundarios (ex.: 7 tubos de proa no principal, depois os 7 de popa em um
+  secundario). Limites de seguranca: no maximo 20 rearmes ou 20 s por
+  pressionamento, so enquanto o alvo principal for o mesmo; toda vez que solta
+  a tecla isso e limpo.
+- O Auto Fire distribui phasers e armas de pulso entre os alvos secundarios,
+  mas NAO manda torpedos para alvos secundarios: dispara salvas completas no
+  alvo principal do momento (ainda nao implementado). Para torpedos em alvos
+  secundarios, atire a mao.
+- Os patches opcionais do motor (um banco por alvo, arquivo de log) estao
+  descritos em "Patches do motor" abaixo. O modulo funciona sem eles (varios
+  bancos podem atirar no mesmo alvo, e nao ha arquivo de log).
 Configuracao: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
 - ToggleKey (J), StartEnabled (1), Weapons (7), Interval (0,2 s),
-  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoMinSolution (70,
-  para a fase 2), Debug (0). Sao lidas uma vez ao comecar a batalha.
+  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoRange (30 km),
+  Debug (0). Sao lidas uma vez ao comecar a batalha. Com Debug = 1 (e o patch
+  "fileio") o modulo grava seu rastro em Spaceframe_debug.log, na pasta do
+  jogo.
+
+Patches do motor (stbc.exe, opcionais)
+--------------------------------------
+Sao gerenciados com "python tools/exe_patch.py status|apply|revert|verify"
+(precisa de Python com capstone, pefile e keystone). Cada patch confere o
+hash, vale so para a build que verifica e guarda uma copia
+stbc.exe.orig-<hash>. Feche o jogo antes. Use --patch NOME para escolher um;
+"revert --all" desfaz todos; "status" lista os dois.
+- onebank (padrao se nenhum nome for dado): um banco de armas por alvo. O jogo
+  so conhece "um banco por vez"; com o patch, bancos que alcancam alvos
+  diferentes atiram juntos, mas dois bancos nunca dividem o mesmo alvo. Afeta
+  todas as naves do jogo, inclusive as da IA.
+- fileio: permite que scripts Python abram arquivos. O jogo bloqueia isso
+  ("Securelevel prevents file IO"); este patch e o que permite o
+  Spaceframe_debug.log (Debug = 1). Aplique com "python tools/exe_patch.py
+  apply --patch fileio" e desfaca com "revert --patch fileio". SEGURANCA:
+  enquanto estiver aplicado, QUALQUER script do jogo ou de outros mods pode ler
+  e gravar arquivos; aplique so se confia em tudo o que instalou, e desfaca
+  quando nao precisar mais do log.
 
 Qual nome de nave usar
 ----------------------

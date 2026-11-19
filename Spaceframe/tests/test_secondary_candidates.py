@@ -34,7 +34,7 @@ def make_config(**kw):
 	c.Interval = 0.2
 	c.MaxCandidates = 4
 	c.SecondaryRange = 100
-	c.SecondaryTorpedoMinSolution = 70
+	c.SecondaryTorpedoRange = 30
 	c.Debug = 0
 	for k in kw:
 		setattr(c, k, kw[k])
@@ -206,7 +206,109 @@ def test_engine_error_returns_empty():
 	assert ST.FreeWeapons(pSys, main, "phaser") == []
 	assert ST.WantedTargets(ship, pSys, main, "phaser") == []
 	assert ST.GetCandidates(ship, main, None, "phaser") == []
-	assert ST.GetCandidates(ship, main, pSys, "torpedo") == []
+	assert ST.GetCandidates(ship, main, pSys, "other") == []
+
+
+def tubes_group(lTubes):
+	pGroup = mock_app.WeaponGroup(lTubes)
+	pGroup.torpedo = 1
+	return pGroup
+
+
+def tube(fX=0.0):
+	# A tube at (fX, 0, 0) pointing along +x with the +-30 degree cone.
+	pTube = mock_app.Tube(None, 1, mock_app.Point(fX, 0.0, 0.0))
+	return pTube
+
+
+def test_torpedo_free_tube_is_not_in_arc_of_main():
+	App, ST, AF, core, ship = setup()
+	main = enemy("Main", 2, 10.0)
+	core.g_pMission = mock_app.Mission([main])
+	tFwd = tube()
+	tAft = tube()
+	tAft.vDir = mock_app.Point(-1.0, 0.0, 0.0)
+	pSys = tubes_group([tFwd, tAft])
+	assert ST.FreeWeapons(pSys, main, "torpedo") == [tAft]
+	assert ST.FreeWeapons(pSys, None, "torpedo") == []
+	assert ST.GetWeapons(pSys, "torpedo") == [tFwd, tAft]
+
+
+def test_torpedo_wanted_only_if_a_free_tube_reaches():
+	App, ST, AF, core, ship = setup()
+	main = enemy("Main", 2, 10.0)
+	behind = enemy("Behind", 3, -20.0)
+	ahead = enemy("Ahead", 4, 30.0)
+	core.g_pMission = mock_app.Mission([main, behind, ahead])
+	tFwd = tube()
+	tAft = tube()
+	tAft.vDir = mock_app.Point(-1.0, 0.0, 0.0)
+	pSys = tubes_group([tFwd, tAft])
+	# the forward tubes reach main (and Ahead): reserved; the aft tube takes Behind
+	assert ST.WantedTargets(ship, pSys, main, "torpedo") == [3]
+	# only forward tubes: no free tube, nothing wanted
+	assert ST.WantedTargets(ship, tubes_group([tube(), tube()]), main, "torpedo") == []
+
+
+def test_torpedo_unreachable_candidate_not_wanted():
+	App, ST, AF, core, ship = setup()
+	main = enemy("Main", 2, 10.0)
+	side = enemy("Side", 3, 20.0)
+	side.pos = mock_app.Point(0.0, 20.0, 0.0)	# 90 degrees off every tube
+	core.g_pMission = mock_app.Mission([main, side])
+	tAft = tube()
+	tAft.vDir = mock_app.Point(-1.0, 0.0, 0.0)
+	assert ST.WantedTargets(ship, tubes_group([tAft]), main, "torpedo") == []
+
+
+def test_torpedo_range_filters_and_zero_means_no_limit():
+	# 30 km = 30 / 0.175 units in the mock; hull radius 1
+	App, ST, AF, core, ship = setup(SecondaryTorpedoRange=30)
+	ST.LoadConfig()
+	main = enemy("Main", 2, 5.0)
+	near = enemy("Near", 3, 100.0)
+	far = enemy("Far", 4, 500.0)
+	core.g_pMission = mock_app.Mission([main, near, far])
+	pSys = tubes_group([tube()])
+	assert ids(ST.GetCandidates(ship, main, pSys, "torpedo")) == [3]
+	sys.modules[PKG + ".Config"].SecondaryTorpedoRange = 0
+	ST.LoadConfig()
+	assert ST.g_fTorpedoRange == 0.0
+	assert ids(ST.GetCandidates(ship, main, pSys, "torpedo")) == [3, 4]
+	# MaxCandidates still caps the nearest
+	sys.modules[PKG + ".Config"].MaxCandidates = 1
+	ST.LoadConfig()
+	assert ids(ST.GetCandidates(ship, main, pSys, "torpedo")) == [3]
+
+
+def test_torpedo_arc_error_counts_not_free_and_logs_once():
+	App, ST, AF, core, ship = setup(Debug=1)
+	ST.LoadConfig()
+	main = enemy("Main", 2, 10.0)
+	b = enemy("B", 3, 20.0)
+	core.g_pMission = mock_app.Mission([main, b])
+	pBad = tube()
+	pBad.iArc = "raise"
+	pSys = tubes_group([pBad, pBad])
+	assert ST.FreeWeapons(pSys, main, "torpedo") == []
+	assert ST.WantedTargets(ship, pSys, main, "torpedo") == []
+	n = 0
+	for t in core.logs:
+		if "Reach error" in t[1]:
+			n = n + 1
+	assert n == 1
+	# a tube that fails only for the candidate is not reaching it
+	pHalf = tube()
+	pHalf.vDir = mock_app.Point(-1.0, 0.0, 0.0)
+	pOnce = [0]
+
+	def flaky(pPoint):
+		pOnce[0] = pOnce[0] + 1
+		if pOnce[0] == 1:
+			return 0	# main: not in arc -> free
+		raise TypeError("IsInArc")
+	pHalf.IsInArc = flaky
+	assert ST.WantedTargets(ship, tubes_group([pHalf]), main, "torpedo") == []
 
 
 def test_autofire_import_failure_disables_and_logs_once():

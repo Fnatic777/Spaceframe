@@ -69,6 +69,9 @@ class FakeWeapon:
 	def GetNumReady(self):
 		return self.ready
 
+	def GetMaxReady(self):
+		return 4
+
 	def GetChargeLevel(self):
 		return 5.0
 
@@ -119,6 +122,11 @@ class FakeSystem:
 	def ClearTargetList(self):
 		self.log.append(("clear",))
 		self.targets = []
+
+	def StopFiringAtTarget(self, pTarget):
+		self.log.append(("stopat", pTarget.GetObjID()))
+		if pTarget in self.targets:
+			self.targets.remove(pTarget)
 
 	def IsInTargetList(self, pTarget):
 		return int(pTarget in self.targets)
@@ -175,11 +183,26 @@ class FakeEvent:
 		return self.pDest
 
 
+TORPS = {}	# torpedo ID -> FakeTorp, for Torpedo_GetObjectByID
+
+
 class FakeTorp:
+	counter = 900
+
 	def __init__(self, iParent, iTarget):
 		self.iParent = iParent
 		self.iTarget = iTarget
 		self.settarget = []
+		self.pos = mock_app.Point(0.0, 0.0, 0.0)
+		FakeTorp.counter = FakeTorp.counter + 1
+		self.iID = FakeTorp.counter
+		TORPS[self.iID] = self
+
+	def GetObjID(self):
+		return self.iID
+
+	def GetWorldLocation(self):
+		return mock_app.Point(self.pos.x, self.pos.y, self.pos.z)
 
 	def GetParentID(self):
 		return self.iParent
@@ -233,6 +256,9 @@ def setup(anyship=1, lPhaser=None, lTorp=None):
 	App.g_kUtopiaModule.GetGameTime = lambda: CLOCK[0]
 	App.ET_WEAPON_FIRED = 9201
 	App.ET_TORPEDO_ENTERED_SET = 9202
+	App.ET_CANT_FIRE = 9203
+	TORPS.clear()
+	App.Torpedo_GetObjectByID = lambda pSet, iID: TORPS.get(iID)
 	App.Weapon_Cast = lambda o: (isinstance(o, FakeWeapon) and o) or None
 	App.PhaserBank_Cast = lambda o: (isinstance(o, FakeWeapon) and o.kind == "phaser" and o) or None
 	App.TorpedoTube_Cast = lambda o: (isinstance(o, FakeWeapon) and o.kind == "torp" and o) or None
@@ -292,6 +318,11 @@ def text():
 	return "\n".join(BANNERS)
 
 
+def flat():
+	# The banner text with the wrapping undone (continuation lines start with a space).
+	return "".join(BANNERS)
+
+
 def fire_torp_ab(W):
 	# Engine policy of the fake: tube 0 fires at A, tube 1 at B.
 	W.torps.assign = [W.A.GetObjID(), W.B.GetObjID()]
@@ -320,12 +351,12 @@ def torp_world():
 def test_start_twice_stop_clean():
 	W = setup()
 	W.STP.Start(W.core)
-	for eType in (9201, 9202):
+	for eType in (9201, 9202, 9203):
 		assert W.App.g_kEventManager.count(eType) == 1
 	assert W.App._top.handlers.count((W.App.ET_KEYBOARD, W.STP.KEY_HANDLER)) == 1
 	del CALLS[:]
 	W.STP.Stop()
-	for eType in (9201, 9202):
+	for eType in (9201, 9202, 9203):
 		assert W.App.g_kEventManager.count(eType) == 0
 	assert W.App._top.handlers == []
 	assert CALLS == []
@@ -389,7 +420,7 @@ def test_select_cycles_and_shows_results():
 	for sName in W.STP.TESTS:
 		assert sName in W.STP.HINT and sName in W.STP.KINDS
 	assert sorted(W.STP.TESTS) == sorted(["INFO", "MULTI_TORP", "FIRE_ONE", "TORP_RETARGET",
-		"SINGLEFIRE_TORP", "ARCFORMULA", "ALL"])
+		"SINGLEFIRE_TORP", "TORP_DUMB", "ARCFORMULA", "TORPARC", "ALL"])
 
 
 def test_k_aborts_running_test():
@@ -438,9 +469,9 @@ def test_multi_torp_uses_fired_events():
 	other.parent = W.A
 	other.tgt = W.A.GetObjID()
 	W.STP.OnWeaponFired(W.App._top, FakeEvent(other))
-	advance(W, 5.0)
+	advance(W, 13.0)	# MULTI_TORP now holds fire for 12 s
 	assert W.STP.g_dRun == None
-	assert "T3 TORP" in text() and "onB:1" in text() and "onA:0" in text() and "rdy:2" in text()
+	assert "T3 TORP" in flat() and "onB:1" in flat() and "onA:0" in flat() and "rdy:2" in flat()
 
 
 def test_weapon_error_is_reported():
@@ -448,7 +479,7 @@ def test_weapon_error_is_reported():
 	fire_torp_ab(W)
 	W.torps.weapons[0].raise_tgt = 1
 	W.STP.Begin("MULTI_TORP")
-	advance(W, 5.0)
+	advance(W, 13.0)
 	assert W.STP.g_dRun == None
 	assert "ERR GetTargetID" in text()
 
@@ -704,13 +735,13 @@ def test_all_runs_and_reports():
 		sRep = "\n".join(lRep)
 		for sName in W.STP.ALL_TESTS:
 			assert sName in sRep
-		assert "MULTI_TORP PASS" in sRep
+		assert "MULTI_TORP NOAFT" in sRep	# the fake tubes all reach both targets
 		assert "MANUAL" not in sRep and "TORP_RETARGET" not in sRep
 		for sLine in lRep:
 			assert len(sLine) <= W.STP.MAX_WIDTH
 		assert "log file: written" in text()
 		sFile = open(path).read()
-		assert "== MULTI_TORP PASS ==" in sFile and "T3 TORP" in sFile
+		assert "== MULTI_TORP NOAFT ==" in sFile and "T3 TORP" in sFile
 		assert "base [s0 m1 p0]" in sFile
 		# every single test result is kept
 		for sName in ("INFO", "SINGLEFIRE_TORP", "MULTI_TORP", "FIRE_ONE"):
@@ -761,9 +792,9 @@ def test_log_file_failure_does_not_raise():
 	builtins.open = broken
 	try:
 		W.STP.Begin("MULTI_TORP")
-		advance(W, 5.0)
+		advance(W, 13.0)
 		assert W.STP.g_dRun == None
-		assert "PASS" in text() and "log file: FAILED" in text() and "denied" in text()
+		assert "NOAFT" in text() and "log file: FAILED" in text() and "denied" in text()
 		del BANNERS[:]
 		W.STP.Begin("INFO")
 		assert "log file: FAILED" in text()
@@ -784,7 +815,7 @@ def test_log_file_written_for_single_test():
 	W.STP.g_sLogFile = path
 	try:
 		W.STP.Begin("MULTI_TORP")
-		advance(W, 5.0)
+		advance(W, 13.0)
 		assert "log file: written" in text()
 		long_line_check = open(path).read()
 		assert "=== STProbe MULTI_TORP" in long_line_check and "w0 r:AB f:A" in long_line_check
@@ -899,6 +930,401 @@ def test_arcformula_accessor_error_is_reported():
 	W.arc.limits = "raise"
 	W.STP.Begin("ARCFORMULA")
 	assert "ERR" in W.STP.g_dResults["ARCFORMULA"][1]
+
+
+# --- TORPARC --------------------------------------------------------------------------
+def torp_arc_world(lTubes=None):
+	W = setup(lPhaser=[], lTorp=[])
+	if lTubes == None:
+		lTubes = [mock_app.Tube()]
+	W.tubes = lTubes
+	W.App.Weapon_Cast = lambda o: o
+	W.App.TorpedoTube_Cast = lambda o: (isinstance(o, mock_app.Tube) and o) or None
+	W.ship.groups[1] = FakeSystem("torp", lTubes)
+	W.ship.groups[0] = None
+	W.ship.rot = None
+	return W
+
+
+def test_torparc_registered_and_not_in_all():
+	W = setup()
+	assert "TORPARC" in W.STP.TESTS and "TORPARC" in W.STP.HINT and W.STP.KINDS["TORPARC"] == ("torp",)
+	assert "TORPARC" not in W.STP.ALL_TESTS
+
+
+def test_torparc_model_matches_candidate_a_and_both_up_signs():
+	W = torp_arc_world()
+	W.STP.Begin("TORPARC")
+	lLines = W.STP.g_dResults["TORPARC"]
+	assert lLines[0].startswith("TORPARC"), lLines
+	sLine = lLines[1]
+	assert sLine.startswith("t0 candA/up+ 12/12, candA/up- 12/12, candB/up+ 12/12, candB/up- 12/12"), sLine
+	assert "first miss" not in sLine
+
+
+def test_torparc_up_sign_minus_tube_still_matches():
+	W = torp_arc_world()
+	W.tubes[0].iUpSign = -1
+	W.tubes[0].vDir = mock_app.Point(0.0, 0.0, 1.0)
+	W.tubes[0].vRight = mock_app.Point(1.0, 0.0, 0.0)
+	W.STP.Begin("TORPARC")
+	assert "candA/up+ 12/12" in W.STP.g_dResults["TORPARC"][1]
+
+
+def test_torparc_wrong_candidate_and_wrong_model_reported():
+	W = torp_arc_world()
+	W.ship.pos = mock_app.Point(0.0, 200.0, 0.0)
+	W.tubes[0].pPos = mock_app.Point(0.0, 200.0, 0.0)
+	W.tubes[0].vLocal = mock_app.Point(0.0, 15000.0, 0.0)	# candidate B puts the tube far away
+	W.STP.Begin("TORPARC")
+	sLine = W.STP.g_dResults["TORPARC"][1]
+	assert "candA/up+ 12/12" in sLine and "candB/up+ 12/12" not in sLine, sLine
+	assert "first miss B " in sLine, sLine
+	W2 = torp_arc_world()
+	W2.tubes[0].fLim = 0.3	# the game's cone is narrower than the model
+	W2.STP.Begin("TORPARC")
+	assert "candA/up+ 12/12" not in W2.STP.g_dResults["TORPARC"][1]
+
+
+def test_torparc_target_line_with_angles():
+	W = torp_arc_world()
+	W.A.pos = mock_app.Point(10.0, 10.0 * 0.5543, 0.0)	# 29 deg off the axis
+	W.STP.Begin("TORPARC")
+	sTgt = W.STP.g_dResults["TORPARC"][2]
+	assert sTgt.startswith("t0 tgt aw=29.0 ah=0.0deg model=1 IsInArc=1 CanHit=1"), sTgt
+	W.tubes[0].vCanHit = 0	# CanHit disagreeing with IsInArc is visible
+	W.STP.Begin("TORPARC")
+	assert "IsInArc=1 CanHit=0" in W.STP.g_dResults["TORPARC"][2]
+
+
+def test_torparc_tolerates_raising_calls():
+	W = torp_arc_world()
+	W.tubes[0].vCanHit = "raise"
+	W.STP.Begin("TORPARC")
+	assert W.STP.g_dResults["TORPARC"][2].endswith("CanHit=E"), W.STP.g_dResults["TORPARC"]
+	W2 = torp_arc_world()
+	W2.tubes[0].iArc = "raise"
+	W2.STP.Begin("TORPARC")
+	lLines = W2.STP.g_dResults["TORPARC"]
+	assert "IsInArc=E" in lLines[2] and "candA/up+ 0/12" in lLines[1], lLines
+
+
+def test_torparc_without_target_and_with_two_tubes():
+	W = torp_arc_world([mock_app.Tube(), mock_app.Tube()])
+	W.ship.target = None
+	W.STP.Begin("TORPARC")
+	lLines = W.STP.g_dResults["TORPARC"]
+	assert lLines[1].startswith("no target selected")
+	assert lLines[2].startswith("t0 ") and lLines[3].startswith("t1 ")
+	assert not [s for s in lLines if " tgt " in s]
+
+
+def test_torparc_foreign_vector_class_is_normalized():
+	# GetDirection/GetRight return another wrapper class that TGPoint3.Set rejects.
+	W = torp_arc_world()
+	T = W.tubes[0]
+	T.GetDirection = lambda: mock_app.Alien(1.0, 0.0, 0.0)
+	T.GetRight = lambda: mock_app.Alien(0.0, 1.0, 0.0)
+	W.STP.Begin("TORPARC")
+	sLine = W.STP.g_dResults["TORPARC"][1]
+	assert "ERR" not in sLine and "candA/up+ 12/12" in sLine, sLine
+
+
+def test_torparc_stage_labels_in_banner():
+	W = torp_arc_world()
+	W.tubes[0].GetDirection = lambda: 5
+	W.STP.Begin("TORPARC")
+	assert W.STP.g_dResults["TORPARC"][1].startswith("t0 ERR stage=read-direction "), W.STP.g_dResults["TORPARC"]
+	W2 = torp_arc_world()
+	W2.tubes[0].GetRight = lambda: 5
+	W2.STP.Begin("TORPARC")
+	assert "stage=read-right" in W2.STP.g_dResults["TORPARC"][1]
+	W3 = torp_arc_world([mock_app.Tube(), mock_app.Tube()])
+	W3.ship.rot = "bad"
+	W3.STP.Begin("TORPARC")
+	lLines = W3.STP.g_dResults["TORPARC"]
+	assert lLines[1].startswith("t0 ERR stage=rotate TypeError") and lLines[2].startswith("t1 ERR stage=rotate"), lLines
+
+
+def test_torparc_origin_stage_failure_keeps_other_candidate():
+	W = torp_arc_world()
+	W.tubes[0].GetPosition = lambda: mock_app.Alien(1.0, 1.0, 1.0).v[5]
+	W.STP.Begin("TORPARC")
+	sLine = W.STP.g_dResults["TORPARC"][1]
+	assert "candA/up+ 12/12" in sLine and "candB/up+ 0/12" in sLine and "B stage=origin" in sLine, sLine
+
+
+# --- MULTI_TORP: starvation of the aft tubes ------------------------------------------
+def drive(W, fSeconds, fn):
+	# Like advance(), but fn(time) runs before every tick (it plays the engine).
+	fEnd = CLOCK[0] + fSeconds
+	while (CLOCK[0] < fEnd - 0.001) and (W.STP.g_dRun != None):
+		CLOCK[0] = CLOCK[0] + 0.25
+		fn(CLOCK[0])
+		W.STP.Tick([])
+
+
+def launch(W, w):
+	w.ready = w.ready - 1
+	w.tgt = W.A.GetObjID()
+	W.STP.OnWeaponFired(W.App._top, FakeEvent(w))
+
+
+def multi_world(iAftReady=1):
+	# Two forward tubes (reach A only), two aft tubes (reach B only).
+	W = setup(lTorp=[FakeWeapon("F1", "torp", (1, 0)), FakeWeapon("F2", "torp", (1, 0)),
+		FakeWeapon("R1", "torp", (0, 1)), FakeWeapon("R2", "torp", (0, 1))])
+	for i in (0, 1):
+		W.torps.weapons[i].ready = 2
+	for i in (2, 3):
+		W.torps.weapons[i].ready = iAftReady
+	return W
+
+
+def plan(W, dTimes):
+	# dTimes: time -> tube index that launches at that time.
+	def fn(fT):
+		if fT in dTimes:
+			launch(W, W.torps.weapons[dTimes[fT]])
+	return fn
+
+
+def test_multi_torp_starvation_after_a_removed():
+	W = multi_world()
+	W.STP.Begin("MULTI_TORP")
+	drive(W, 13.0, plan(W, {0.5: 0, 1.0: 1, 1.5: 0, 2.0: 1, 7.0: 2, 7.5: 3}))
+	assert W.STP.g_dRun == None
+	s = flat()
+	assert "STARVATION: aft fired only after A was removed" in s, s
+	assert "fwd tubes launched 4 (rdy 4->0)" in s, s
+	assert "only-B tubes launched 2 (rdy 2->0)" in s and "first aft launch at t=7.0s" in s, s
+	assert "after A removed (t=6.0s, A in list:0): aft launches 2, fwd launches 0" in s, s
+	assert "fwd empty at t=2.0s" in s and "cantfire fwd:0 aft:0 ?:0" in s, s
+	assert ("stopat", W.A.GetObjID()) in W.torps.log
+	assert ("start", W.B.GetObjID()) in W.torps.log
+	assert W.torps.log[-1] == ("stop",)	# Release at the end
+	assert W.STP.g_dResults["MULTI_TORP"][0].startswith("STARVATION")
+
+
+def test_multi_torp_starvation_after_fwd_empty():
+	W = multi_world()
+	W.STP.Begin("MULTI_TORP")
+	drive(W, 13.0, plan(W, {0.5: 0, 1.0: 1, 1.5: 0, 2.0: 1, 4.0: 2}))
+	s = flat()
+	assert "STARVATION: aft fired only after fwd rdy hit 0" in s, s
+	assert "aft launches 0, fwd launches 0" in s, s
+
+
+def test_multi_torp_interleaved_is_not_starvation():
+	W = multi_world()
+	W.STP.Begin("MULTI_TORP")
+	drive(W, 13.0, plan(W, {0.5: 0, 1.0: 2, 1.5: 1}))
+	s = flat()
+	assert "INTERLEAVED" in s and "STARVATION" not in s, s
+
+
+def test_multi_torp_silent_and_cant_fire_and_not_ready():
+	W = multi_world()
+	W.STP.Begin("MULTI_TORP")
+	drive(W, 13.0, plan(W, {0.5: 0, 1.0: 1}))
+	assert "SILENT: aft tubes never launched though ready" in flat()
+	assert "only-B tubes launched 0 (rdy 2->2)" in flat()
+	W = multi_world()
+	W.STP.Begin("MULTI_TORP")
+	def fn(fT):
+		if fT == 1.0:
+			W.STP.OnCantFire(W.App._top, FakeEvent(W.torps.weapons[2]))
+			W.STP.OnCantFire(W.App._top, FakeEvent(W.torps.weapons[0]))
+			W.STP.OnCantFire(W.App._top, FakeEvent(None))	# source unreadable
+			W.STP.OnCantFire(W.App._top, FakeEvent(FakeWeapon("Other", "torp")))	# not ours
+	drive(W, 13.0, fn)
+	assert "CANT_FIRE" in flat() and "cantfire fwd:1 aft:1 ?:1" in flat(), flat()
+	W = multi_world(iAftReady=0)
+	W.STP.Begin("MULTI_TORP")
+	drive(W, 13.0, plan(W, {}))
+	assert "NOTREADY" in flat(), flat()
+
+
+def test_multi_torp_no_aft_tubes_and_pure_verdict():
+	W = setup()	# the default tubes reach both
+	W.STP.Begin("MULTI_TORP")
+	drive(W, 13.0, plan(W, {}))
+	assert "NOAFT" in flat()
+	V = W.STP.MultiVerdict
+	assert V(2, 0, -1, None, None, 6.0, 0)[0] == "SILENT"
+	assert V(2, 0, 2, None, None, 6.0, 3)[0] == "CANT_FIRE"
+	assert V(2, 1, 2, 7.0, None, 6.0, 0)[0] == "STARVATION"
+	assert V(2, 1, 2, 3.0, 2.0, 6.0, 0)[0] == "STARVATION"
+	assert V(2, 1, 2, 1.0, 2.0, 6.0, 0)[0] == "INTERLEAVED"
+	assert V(2, 1, 2, 1.0, None, None, 0)[0] == "INTERLEAVED"
+
+
+def test_multi_torp_unreadable_numready_does_not_break():
+	W = multi_world()
+	for w in W.torps.weapons:
+		w.GetNumReady = lambda: 1 / 0
+	W.STP.Begin("MULTI_TORP")
+	drive(W, 13.0, plan(W, {0.5: 0}))
+	assert W.STP.g_dRun == None
+	assert "SILENT" in flat() and "rdy ?->?" in flat(), flat()
+
+
+def test_multi_torp_abort_with_o_releases():
+	W = multi_world()
+	W.STP.Begin("MULTI_TORP")
+	drive(W, 3.0, plan(W, {}))
+	W.STP.OnRun()
+	assert W.STP.g_dRun == None and W.torps.log[-1] == ("stop",)
+
+
+# --- TORP_DUMB -----------------------------------------------------------------------
+def dumb_world(lTorp=None):
+	if lTorp == None:
+		lTorp = [FakeWeapon("T1", "torp", (1, 0)), FakeWeapon("T2", "torp", (1, 1)), FakeWeapon("T3", "torp", (0, 1))]
+	W = setup(lTorp=lTorp)
+	W.A.pos = mock_app.Point(10.0, -600.0, 0.0)
+	W.B.pos = mock_app.Point(20.0, 0.0, 0.0)
+	return W
+
+
+def dumb_events(W, fSpeed, iParent=None):
+	# Plays the engine: the torpedo enters the set right after the launch, then
+	# flies along +y at fSpeed from (20,-100,0) (B at the origin of y).
+	dState = {"torp": None}
+	if iParent == None:
+		iParent = W.ship.GetObjID()
+
+	def fn(fT):
+		if dState["torp"] == None:
+			t = FakeTorp(iParent, 0)
+			t.pos = mock_app.Point(20.0, -100.0, 0.0)
+			dState["torp"] = t
+			dState["t0"] = fT
+			W.STP.OnTorpedoEntered(W.App._top, FakeEvent(None, t))
+		else:
+			dState["torp"].pos.y = -100.0 + fSpeed * (fT - dState["t0"])
+	return (fn, dState)
+
+
+def test_torp_dumb_registered_and_not_in_all():
+	import importlib
+	W = setup()
+	assert "TORP_DUMB" in W.STP.TESTS and "TORP_DUMB" not in W.STP.ALL_TESTS
+	assert W.STP.HINT["TORP_DUMB"] == "A ahead, B behind, torps loaded; press o"
+	assert W.STP.KINDS["TORP_DUMB"] == ("torp",)
+	assert W.STP.Precheck("TORP_DUMB")[0] == ""
+
+
+def test_torp_dumb_homing_b():
+	W = dumb_world()
+	W.STP.Begin("TORP_DUMB")
+	assert ("w.FireDumb", "T3") in CALLS and W.STP.g_dRun["tube"] == 2
+	assert W.STP.g_dRun["armed"] == 1
+	tTuple = dumb_events(W, 25.0)
+	drive(W, 6.0, tTuple[0])
+	assert W.STP.g_dRun == None
+	t = tTuple[1]["torp"]
+	assert t.settarget == [W.B.GetObjID()], t.settarget
+	s = flat()
+	assert "HOMING_B" in s and "tube 2 CanHit B=1 A=0" in s, s
+	assert "FireDumb ret=1 from tube 2" in s and "-->B" in s, s
+	assert "dist B t0=100 t+2=50 t+4=0" in s and "dist A t0=500" in s and "t+4=600" in s, s
+	assert W.torps.log[-1] == ("stop",)	# nothing left running
+
+
+def test_torp_dumb_fail_when_not_closing_on_b():
+	W = dumb_world()
+	W.STP.Begin("TORP_DUMB")
+	tTuple = dumb_events(W, -25.0)
+	drive(W, 6.0, tTuple[0])
+	assert "FAIL" in flat() and "HOMING_B" not in flat(), flat()
+
+
+def test_torp_dumb_inconclusive_when_closer_to_both():
+	W = dumb_world()
+	W.A.pos = mock_app.Point(10.0, 200.0, 0.0)
+	W.STP.Begin("TORP_DUMB")
+	tTuple = dumb_events(W, 25.0)
+	drive(W, 6.0, tTuple[0])
+	assert "INCONCLUSIVE" in flat(), flat()
+
+
+def test_torp_dumb_fallback_tubes():
+	# No tube reaches only B: one that cannot hit A is used, else the first ready.
+	W = dumb_world([FakeWeapon("T1", "torp", (1, 1)), FakeWeapon("T2", "torp", (0, 0)), FakeWeapon("T3", "torp", (1, 1))])
+	W.STP.Begin("TORP_DUMB")
+	assert W.STP.g_dRun["tube"] == 1 and "fallback" in W.STP.g_dRun["pick"]
+	W.STP.Abort("x")
+	W = dumb_world([FakeWeapon("T1", "torp", (1, 1)), FakeWeapon("T2", "torp", (1, 1))])
+	W.torps.weapons[0].ready = 0
+	W.STP.Begin("TORP_DUMB")
+	assert W.STP.g_dRun["tube"] == 1 and "every tube reaches A" in W.STP.g_dRun["pick"]
+	W.STP.Abort("x")
+	# The angle is used when the tube can tell its direction.
+	W = dumb_world([FakeWeapon("T1", "torp", (1, 1)), FakeWeapon("T2", "torp", (1, 1))])
+	W.torps.weapons[0].CalculateRoughDirection = lambda: mock_app.Point(0.0, -1.0, 0.0)
+	W.torps.weapons[1].CalculateRoughDirection = lambda: mock_app.Point(0.0, 1.0, 0.0)
+	W.torps.weapons[0].GetWorldLocation = lambda: mock_app.Point(0.0, 0.0, 0.0)
+	W.torps.weapons[1].GetWorldLocation = lambda: mock_app.Point(0.0, 0.0, 0.0)
+	W.STP.Begin("TORP_DUMB")
+	assert W.STP.g_dRun["tube"] == 1 and "179 deg off A" in W.STP.g_dRun["pick"], W.STP.g_dRun["pick"]
+	W.STP.Abort("x")
+
+
+def test_torp_dumb_no_ready_tube_and_no_torpedo_event():
+	W = dumb_world()
+	for w in W.torps.weapons:
+		w.ready = 0
+	W.STP.Begin("TORP_DUMB")
+	assert W.STP.g_dRun == None and "no tube has a torpedo ready" in flat()
+	W = dumb_world()
+	W.STP.Begin("TORP_DUMB")
+	advance(W, 5.0)
+	assert W.STP.g_dRun == None and "INCONCLUSIVE" in flat() and "no torpedo event" in flat(), flat()
+	assert W.STP.g_dRun == None
+
+
+def test_torp_dumb_ignores_foreign_torpedo():
+	W = dumb_world()
+	W.STP.Begin("TORP_DUMB")
+	tTuple = dumb_events(W, 25.0, iParent=99)
+	drive(W, 1.0, tTuple[0])
+	assert tTuple[1]["torp"].settarget == [] and W.STP.g_dRun["armed"] == 1
+	advance(W, 5.0)
+	assert W.STP.g_dRun == None
+
+
+def test_torp_dumb_tolerates_errors():
+	W = dumb_world()
+	W.torps.weapons[2].FireDumb = lambda f, i: 1 / 0
+	W.STP.Begin("TORP_DUMB")
+	advance(W, 5.0)
+	assert W.STP.g_dRun == None and "ret=ERR" in flat() and "ERR FireDumb" in flat(), flat()
+	# The torpedo cannot be fetched again by ID: the run still ends.
+	W = dumb_world()
+	W.STP.Begin("TORP_DUMB")
+	del W.App.Torpedo_GetObjectByID
+	tTuple = dumb_events(W, 25.0)
+	drive(W, 6.0, tTuple[0])
+	assert W.STP.g_dRun == None and "INCONCLUSIVE" in flat() and "gone" in flat(), flat()
+	# SetTarget failing is reported.
+	W = dumb_world()
+	W.STP.Begin("TORP_DUMB")
+	t = FakeTorp(W.ship.GetObjID(), 0)
+	def bad2(i):
+		raise RuntimeError("no")
+	t.SetTarget = bad2
+	W.STP.OnTorpedoEntered(W.App._top, FakeEvent(None, t))
+	assert "SetTarget" in "".join(W.STP.g_dRun["errors"]) and "SetTarget FAILED" in W.STP.g_dRun["tgtAfter"]
+	W.STP.Abort("x")
+
+
+def test_torp_dumb_stop_touches_no_ship():
+	W = dumb_world()
+	W.STP.Begin("TORP_DUMB")
+	del CALLS[:]
+	W.STP.Stop()
+	assert W.STP.g_dRun == None and CALLS == []
 
 
 def run():

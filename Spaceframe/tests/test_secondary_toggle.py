@@ -169,7 +169,7 @@ def test_stop_touches_no_ship_and_forgets():
 def test_second_start_no_double_lift_or_handlers():
 	App, ST, core, ship, tg, gs = started(1)
 	ST.Start(core)
-	assert len(App.g_kEventManager.handlers) == 3
+	assert len(App.g_kEventManager.handlers) == 4	# 3 fire keys + weapon fired
 	assert len(App._tcw.menu.children) == 1
 	# the second Start saw the lifted value (0) as the "original": Stop forgot
 	# the first record, so nothing is restored by it either way

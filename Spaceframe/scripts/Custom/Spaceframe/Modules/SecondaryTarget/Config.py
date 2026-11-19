@@ -32,9 +32,9 @@ MaxCandidates = 4
 # the phaser's maximum damage range (100 = the range of full damage).
 SecondaryRange = 100
 
-# Minimum firing solution (percent) to launch a torpedo at a secondary
-# target.
-SecondaryTorpedoMinSolution = 70
+# An enemy becomes a secondary target for the torpedoes when it is within
+# this distance of your ship, in km as the game shows it (0 = no limit).
+SecondaryTorpedoRange = 30
 
 # 1 = write messages in the log (for testing).
 Debug = 0
