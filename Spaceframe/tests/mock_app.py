@@ -380,7 +380,15 @@ class Point:
 		return f
 
 	def MultMatrixLeft(self, m):
-		pass
+		# m: None (no rotation) or a 3x3 list of rows; self = m * self.
+		if m is None:
+			return
+		x = m[0][0] * self.x + m[0][1] * self.y + m[0][2] * self.z
+		y = m[1][0] * self.x + m[1][1] * self.y + m[1][2] * self.z
+		z = m[2][0] * self.x + m[2][1] * self.y + m[2][2] * self.z
+		self.x = x
+		self.y = y
+		self.z = z
 
 
 class Bank:
@@ -441,6 +449,37 @@ class Pulse:
 		self.sModule = sModule
 		self.pPos = Point()
 		self.arcPoints = []
+		# Arc box for ArcDepth (radians) and its axes in ship space; "raise" in
+		# limits/axes simulates the accessors failing.
+		self.limits = (-0.5, 0.5, -0.5, 0.5)
+		self.axes = (Point(1.0, 0.0, 0.0), Point(0.0, 1.0, 0.0), Point(0.0, 0.0, 1.0))
+		Pulse.counter = Pulse.counter + 1
+		self.iID = Pulse.counter
+
+	counter = 5000
+
+	def GetObjID(self):
+		return self.iID
+
+	def GetPosition(self):
+		return Point(self.pPos.x, self.pPos.y, self.pPos.z)
+
+	def _limit(self, i):
+		if self.limits == "raise":
+			raise TypeError("limits")
+		return self.limits[i]
+
+	def GetArcWidthAngleMin(self):
+		return self._limit(0)
+
+	def GetArcWidthAngleMax(self):
+		return self._limit(1)
+
+	def GetArcHeightAngleMin(self):
+		return self._limit(2)
+
+	def GetArcHeightAngleMax(self):
+		return self._limit(3)
 
 	def GetChargeLevel(self):
 		return self.fCharge
@@ -470,6 +509,20 @@ class Pulse:
 		class Prop:
 			def GetModuleName(self):
 				return w.sModule
+
+			def _axis(self, i):
+				if w.axes == "raise":
+					raise TypeError("axes")
+				return w.axes[i]
+
+			def GetOrientationForward(self):
+				return self._axis(0)
+
+			def GetOrientationRight(self):
+				return self._axis(1)
+
+			def GetOrientationUp(self):
+				return self._axis(2)
 		return Prop()
 
 
@@ -624,7 +677,7 @@ class Ship:
 		return Point(p.x + v.x * t, p.y + v.y * t, p.z + v.z * t)
 
 	def GetWorldRotation(self):
-		return None
+		return getattr(self, "rot", None)
 
 	def GetImpulseEngineSubsystem(self):
 		ship = self
@@ -729,7 +782,8 @@ def make_app():
 	App.PhaserBank_Cast = lambda o: (isinstance(o, Bank) and o) or None
 	App.TorpedoTube_Cast = lambda o: (isinstance(o, Tube) and o) or None
 	App.PulseWeapon_Cast = lambda o: (isinstance(o, Pulse) and o) or None
-	App.PulseWeaponSystem_Cast = lambda o: (isinstance(o, WeaponGroup) and o.pulse and o) or None
+	App.PulseWeaponProperty_Cast = lambda o: o
+	App.PulseWeaponSystem_Cast =lambda o: (isinstance(o, WeaponGroup) and o.pulse and o) or None
 	App.TorpedoSystem_Cast = lambda o: (isinstance(o, WeaponGroup) and o.torpedo and o) or None
 	App.PhysicsObjectClass_Cast = lambda o: o
 	App.TGPoint3 = Point

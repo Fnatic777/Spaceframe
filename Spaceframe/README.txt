@@ -164,6 +164,12 @@ has "AutoFire" in Ships.py.
   PulseMinSolution or more. PulseRule 2: a firing cone around where each
   weapon points, with its own settings (PulseConeAngleFar/Near,
   PulseConeFarDistance/NearDistance), usually wider than the torpedoes'.
+  PulseRule 3 (NEW, validate with the STProbe ARCFORMULA test): fires when
+  where the target will be is inside the weapon's firing arc by a share of
+  the arc that depends on the distance: PulseArcPercentFar % of the arc
+  (from its centre) at PulseArcFarDistance km and beyond, opening to
+  PulseArcPercentNear % at PulseArcNearDistance km and closer. Once firing
+  it keeps firing until the point is PulseArcHysteresis points past that.
 - TapFire = 1: torpedoes and pulse weapons are fired with quick presses
   (faster than holding the key); phasers are always held.
 - TargetMode: 0 = your selected target only; 1 = your target, and with none
@@ -388,6 +394,12 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   apunta cada arma, con su propia configuracion (PulseConeAngleFar/Near,
   PulseConeFarDistance/NearDistance), normalmente mas ancho que el de los
   torpedos.
+  PulseRule 3 (NUEVO, validar con la prueba ARCFORMULA de STProbe): dispara
+  cuando donde estara el objetivo esta dentro del arco de tiro del arma en
+  una parte del arco que depende de la distancia: PulseArcPercentFar % del
+  arco (desde su centro) a PulseArcFarDistance km o mas, abriendose a
+  PulseArcPercentNear % a PulseArcNearDistance km o menos. Una vez
+  disparando, sigue hasta que el punto se pase PulseArcHysteresis puntos.
 - TapFire = 1: torpedos y armas de pulso se disparan con toques rapidos
   (mas rapido que mantener la tecla); los phasers siempre se mantienen.
 - TargetMode: 0 = solo su objetivo seleccionado; 1 = su objetivo, y sin
@@ -607,6 +619,12 @@ tiver "AutoFire" no Ships.py.
   com ajustes proprios (PulseConeAngleFar/Near,
   PulseConeFarDistance/NearDistance), normalmente mais largo que o dos
   torpedos.
+  PulseRule 3 (NOVO, validar com o teste ARCFORMULA do STProbe): dispara
+  quando onde o alvo vai estar fica dentro do arco de tiro da arma numa
+  parte do arco que depende da distancia: PulseArcPercentFar % do arco (a
+  partir do centro) a PulseArcFarDistance km ou mais, abrindo para
+  PulseArcPercentNear % a PulseArcNearDistance km ou menos. Depois de
+  comecar a disparar, continua ate o ponto passar PulseArcHysteresis pontos.
 - TapFire = 1: torpedos e armas de pulso sao disparados com toques rapidos
   (mais rapido que segurar a tecla); os phasers sao sempre segurados.
 - TargetMode: 0 = so o alvo que voce selecionou; 1 = o seu alvo, e sem

@@ -43,6 +43,7 @@ g_dScore = {}		# weapon group -> last firing solution (torpedoes, pulse)
 g_iPlayerSpread = None	# the player's torpedo spread, to go back to
 g_iSetSpread = None	# the spread Auto Fire last set
 g_iSpreadShipID = None	# ship whose spread Auto Fire changed
+g_dArcReady = {}	# (pulse weapon ID, target ID) -> 1 while 'ready' for that target (PulseRule 3 hysteresis)
 
 # Settings read once by LoadConfig() at Start (the hot path never asks Config).
 # Initial values = the defaults, so code run before Start behaves the same.
@@ -58,6 +59,11 @@ g_fSpreadMinDistance = 0.0
 g_fPulseMinSolution = 70.0
 g_iPulseRule = 1
 g_iTapFire = 1
+g_fArcFar = 50.0		# PulseArcPercentFar
+g_fArcNear = 90.0		# PulseArcPercentNear
+g_fArcFarDistance = 171.0	# PulseArcFarDistance, world units
+g_fArcNearDistance = 29.0	# PulseArcNearDistance, world units
+g_fArcHysteresis = 10.0		# PulseArcHysteresis, percentage points
 
 KEY_HANDLER = "Custom.Spaceframe.Modules.AutoFire.AutoFire.OnKeyboard"
 BUTTON_HANDLER = "Custom.Spaceframe.Modules.AutoFire.AutoFire.OnMenuButton"
@@ -76,7 +82,14 @@ def LoadConfig():
 	global g_iTorpedoReserve, g_fTorpedoMinSolution, g_iTorpedoRule
 	global g_fSpreadMinSolution, g_fSpreadMinDistance, g_fPulseMinSolution
 	global g_iPulseRule, g_iTapFire, g_bArcLogged, g_bArcZeroLogged
+	global g_fArcFar, g_fArcNear, g_fArcFarDistance, g_fArcNearDistance, g_fArcHysteresis
 	pConfig = GetConfig()
+	g_fArcFar = float(getattr(pConfig, "PulseArcPercentFar", 50))
+	g_fArcNear = float(getattr(pConfig, "PulseArcPercentNear", 90))
+	g_fArcFarDistance = KilometersToUnits(float(getattr(pConfig, "PulseArcFarDistance", 30)))
+	g_fArcNearDistance = KilometersToUnits(float(getattr(pConfig, "PulseArcNearDistance", 5)))
+	g_fArcHysteresis = float(getattr(pConfig, "PulseArcHysteresis", 10))
+	ForgetArc()
 	g_iTargetMode = int(getattr(pConfig, "TargetMode", 0))
 	g_fPhaserMinCharge = float(getattr(pConfig, "PhaserMinCharge", 50))
 	g_fPhaserRange = float(getattr(pConfig, "PhaserRange", 100))
@@ -158,6 +171,7 @@ def SetEnabled(iOn):
 	else:
 		g_iOn = 0
 		g_iShipID = None
+		ForgetArc()
 		StopAll()
 		RestoreSpread()
 		StopTimer()
@@ -659,19 +673,144 @@ def PulseReady(pWeapon, pTarget):
 	return 0
 
 
+def ForgetArc():
+	# Forgets which weapons were 'ready' (PulseRule 3 hysteresis).
+	global g_dArcReady
+	g_dArcReady = {}
+
+
+def ArcAllowed(fDistance):
+	# PulseRule 3: percent of the arc (from its centre) the predicted point
+	# may use at this distance (world units): PulseArcPercentFar at
+	# PulseArcFarDistance and beyond, PulseArcPercentNear at
+	# PulseArcNearDistance and closer, linear in between (as the cone).
+	if fDistance <= g_fArcNearDistance:
+		fAllowed = g_fArcNear
+	elif fDistance >= g_fArcFarDistance:
+		fAllowed = g_fArcFar
+	else:
+		fShare = (fDistance - g_fArcNearDistance) / (g_fArcFarDistance - g_fArcNearDistance)
+		fAllowed = g_fArcNear + (g_fArcFar - g_fArcNear) * fShare
+	if fAllowed < 0.0:
+		fAllowed = 0.0
+	if fAllowed > 100.0:
+		fAllowed = 100.0
+	return fAllowed
+
+
+def PulseCharged(pWeapon):
+	return pWeapon.GetChargeLevel() >= pWeapon.GetMinFiringCharge()
+
+
+def WeaponKey(pWeapon):
+	# The weapon's object ID (None if unreadable: no hysteresis for it).
+	try:
+		return pWeapon.GetObjID()
+	except:
+		return None
+
+
+def ArcFallback(pWeapon, vPoint):
+	# ArcDepth unavailable: the game's boolean arc test; if that raises too,
+	# ready (as PulseReady). Score 1 (the minimum) or 0.
+	global g_bArcLogged
+	try:
+		if pWeapon.IsInArc(vPoint):
+			return 1.0
+		return 0.0
+	except:
+		if g_bDebug and (not g_bArcLogged):
+			g_bArcLogged = 1
+			try:
+				g_pCore.Log(NAME, "ArcDepth and IsInArc failed, arc not checked: " + str(sys.exc_info()[1]))
+			except:
+				pass
+		return 1.0
+
+
+def PulseArcScore(pShip, pSystem, pWeapon, pTarget, vOffset):
+	# PulseRule 3: 0 when the weapon should not fire at the target, else 1 to
+	# 100 (100 = predicted point at the centre of the arc). The point is the
+	# lead point Solution.Score aims at. Ready from depth*100 <= the allowed
+	# percent at that distance; once ready for this target it stays ready
+	# until depth*100 > allowed + PulseArcHysteresis (never beyond the arc).
+	iWeapon = WeaponKey(pWeapon)
+	iTarget = pTarget.GetObjID()
+	iKey = None
+	if iWeapon != None:
+		iKey = (iWeapon, iTarget)	# per (weapon, target): scoring B never touches A's entry
+	if not PulseCharged(pWeapon):
+		if (iKey != None) and g_dArcReady.has_key(iKey):
+			del g_dArcReady[iKey]
+		return 0.0
+	pSolution = GetSolution()
+	vPoint = None
+	try:
+		tInfo = pSolution.GetProjectileInfo(pWeapon, pSystem)
+		vPoint = pSolution.LeadPoint(pTarget, vOffset, pWeapon.GetWorldLocation(), tInfo[0])
+	except:
+		vPoint = None
+	if vPoint == None:
+		vPoint = pTarget.GetWorldLocation()
+	fDepth = pSolution.ArcDepth(pShip, pWeapon, vPoint)
+	if fDepth == None:
+		return ArcFallback(pWeapon, vPoint)
+	fDistance = 0.0
+	try:
+		vDiff = pWeapon.GetWorldLocation()
+		vDiff.Subtract(vPoint)
+		fDistance = vDiff.Length()
+	except:
+		fDistance = 0.0
+	fLimit = ArcAllowed(fDistance)
+	if (iKey != None) and g_dArcReady.has_key(iKey):
+		fLimit = fLimit + g_fArcHysteresis
+	if fLimit > 100.0:
+		fLimit = 100.0
+	if fDepth * 100.0 <= fLimit:
+		if iKey != None:
+			g_dArcReady[iKey] = 1
+		fScore = 100.0 * (1.0 - fDepth)
+		if fScore < 1.0:
+			fScore = 1.0
+		return fScore
+	if (iKey != None) and g_dArcReady.has_key(iKey):
+		del g_dArcReady[iKey]
+	return 0.0
+
+
+def ArcSettle(pSystem, iTargetID):
+	# After the group chose its target (None: none): its weapons stay 'ready'
+	# only for that target, so a target change starts every weapon afresh.
+	for iChild in range(pSystem.GetNumChildSubsystems()):
+		pWeapon = App.PulseWeapon_Cast(pSystem.GetChildSubsystem(iChild))
+		if pWeapon != None:
+			iWeapon = WeaponKey(pWeapon)
+			if iWeapon == None:
+				continue
+			for tKey in g_dArcReady.keys():
+				if (tKey[0] == iWeapon) and (tKey[1] != iTargetID):
+					del g_dArcReady[tKey]
+
+
 def BestPulseScore(pShip, pSystem, pTarget):
 	# Best score among the charged pulse weapons that can reach the target.
 	# PulseRule 1 (firing solution): they aim themselves inside their arc,
 	# so only the flight (target evasion, projectile lifetime) counts.
 	# PulseRule 2 (firing cone): the pulse cone (PulseCone*) around where
 	# the weapon points.
+	# PulseRule 3 (arc percent): see PulseArcScore.
 	pSolution = GetSolution()
 	vOffset = GetOffset(pShip, pTarget)
 	iRule = g_iPulseRule
 	fBest = 0.0
 	for iChild in range(pSystem.GetNumChildSubsystems()):
 		pWeapon = App.PulseWeapon_Cast(pSystem.GetChildSubsystem(iChild))
-		if (pWeapon != None) and PulseReady(pWeapon, pTarget):
+		if (pWeapon != None) and (iRule == 3):
+			fScore = PulseArcScore(pShip, pSystem, pWeapon, pTarget, vOffset)
+			if fScore > fBest:
+				fBest = fScore
+		elif (pWeapon != None) and PulseReady(pWeapon, pTarget):
 			tInfo = pSolution.GetProjectileInfo(pWeapon, pSystem)
 			vDirection = None
 			if iRule == 2:
@@ -692,13 +831,19 @@ def PulseTarget(pShip, pSystem, lTargets, eGroup):
 			fBest = fScore
 			pBest = pTarget
 	if pBest == None:
+		if g_iPulseRule == 3:
+			ArcSettle(pSystem, None)
 		return None
 	g_dScore[eGroup] = fBest
 	fMinimum = g_fPulseMinSolution
-	if g_iPulseRule == 2:
-		fMinimum = 1.0	# firing cone: any weapon inside it
+	if (g_iPulseRule == 2) or (g_iPulseRule == 3):
+		fMinimum = 1.0	# firing cone / arc percent: any weapon inside it
 	if fBest >= fMinimum:
+		if g_iPulseRule == 3:
+			ArcSettle(pSystem, pBest.GetObjID())
 		return pBest
+	if g_iPulseRule == 3:
+		ArcSettle(pSystem, None)
 	return None
 
 
@@ -922,6 +1067,7 @@ def Stop():
 		g_dFiring[tEntry[1]] = None
 	g_iFiringShipID = None
 	ForgetSpread()
+	ForgetArc()
 	StopTimer()
 	g_iOn = 0
 	g_iShipID = None

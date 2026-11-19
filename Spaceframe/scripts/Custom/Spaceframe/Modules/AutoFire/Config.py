@@ -53,8 +53,12 @@ TorpedoRule = 2
 #   1 = firing solution: they aim themselves inside their arc, so only the
 #       flight counts (target evasion, projectile lifetime, target size);
 #   2 = firing cone around where each weapon points (pulse cone settings
-#       below); PulseMinSolution is not used in this rule.
-PulseRule = 2
+#       below); PulseMinSolution is not used in this rule;
+#   3 = arc percent (NEW, validate with the STProbe ARCFORMULA test): a
+#       weapon fires when where the target will be is inside its firing
+#       arc by a percentage that depends on the distance (PulseArc*
+#       settings below); PulseMinSolution is not used in this rule.
+PulseRule = 3
 
 # Torpedo firing cone (TorpedoRule 2): ConeAngleFar degrees at
 # ConeFarDistance km and beyond, opening to ConeAngleNear degrees at
@@ -74,6 +78,20 @@ PulseConeAngleFar = 45
 PulseConeAngleNear = 90
 PulseConeFarDistance = 30
 PulseConeNearDistance = 5
+
+# Pulse weapon arc percent (PulseRule 3). The arc is measured from its
+# centre (0 = centre, 100 = its edge). A weapon starts to fire when the
+# predicted target point is within PulseArcPercentFar percent of the arc at
+# PulseArcFarDistance km and beyond, opening to PulseArcPercentNear percent
+# at PulseArcNearDistance km and closer (in between, in proportion).
+# Distances as shown in game. Once firing, it keeps firing until the point
+# is more than PulseArcHysteresis percentage points past that limit (never
+# beyond the edge of the arc), so it does not flicker at the border.
+PulseArcPercentFar = 50
+PulseArcPercentNear = 90
+PulseArcFarDistance = 30
+PulseArcNearDistance = 5
+PulseArcHysteresis = 10
 
 # --- Firing solution (torpedoes and pulse weapons) -----------------------
 # For each loaded tube, Auto Fire predicts where the target will be when
