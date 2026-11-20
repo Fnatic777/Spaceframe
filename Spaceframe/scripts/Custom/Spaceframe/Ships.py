@@ -25,6 +25,10 @@
 #	                                  (default: DefaultArmor, 50)
 #	  "AutoFire": Def               - automatic fire for the player's ship
 #	                                  (switched on with L or the menu)
+#	  "SecondaryTarget": Def or 1-7 - weapons that cannot reach the main
+#	                                  target shoot other enemies; the number
+#	                                  adds 1 phasers, 2 torpedoes, 4 pulse
+#	                                  (default: Weapons, 7; 0 = off)
 #	A ship without a technology simply does not list it.
 #
 #	Races and families come from each ship's Orion Delta plugin
@@ -48,6 +52,7 @@ Default = Def		# older name, still accepted
 # Every ship.
 All = {
 	"AutoFire": Def,	# only ever acts on the ship the player controls
+	"SecondaryTarget": Def,	# only ever acts on the ship the player controls
 }
 
 # By race.

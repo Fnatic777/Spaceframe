@@ -141,3 +141,8 @@ PulseMinSolution = 50
 # Torpedoes kept back for manual use (Auto Fire stops launching when only
 # this many are left in the magazine).
 TorpedoReserve = 0
+
+# 1 = with Secondary Target switched ON for this ship (torpedoes allowed there),
+# torpedo tubes that cannot reach the target fire at secondary targets they can
+# reach (same firing solution rule as above). 0 = off.
+SecondaryTorpedoes = 1

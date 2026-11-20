@@ -1,7 +1,7 @@
 Spaceframe v0.6 - lightweight module framework for Bridge Commander
 ====================================================================
 Included modules: MV Shields (Multivectral Shields) v0.7, Ablative Armor v1.6,
-Status HUD v0.12, Auto Fire v0.4
+Status HUD v0.12, Auto Fire v0.4, Secondary Target v0.3
 
   [EN] English ........ section 1
   [ES] Espanol ........ seccion 2
@@ -38,7 +38,11 @@ Modules             - modules are enabled automatically; set one to 0 to
                       disable it, e.g. "MVShields": 0
 Interval            - time between timer cycles (default 0.25 s)
 EnableInMultiplayer - 1 = also run in multiplayer (may desync)
-Debug               - 1 = show messages in the Test Mode console
+Debug               - 1 = write Spaceframe_debug.log in the game folder (needs the
+                      optional "fileio" engine patch, see "Engine patches"; without
+                      it one banner says the log is unavailable). Max 5000 lines
+                      per session, each stamped with the game time. Leave it 0
+                      for normal play.
 In every Config.py, percentages are written from 0 to 100 (50 = 50%), and
 on/off settings as 1 or 0.
 
@@ -66,6 +70,9 @@ Def = the default value set in the module's Config.py; or a number:
 - "AblativeArmor": capacity as a percentage of the hull (default:
   DefaultArmor, 50).
 - "AutoFire": Def (the ship can use Auto Fire).
+- "SecondaryTarget": Def, or a number that adds the weapon types: 1 phasers,
+  2 torpedoes, 4 pulse weapons (e.g. 5 = phasers and pulse). Def = the
+  Weapons setting of the module.
 On Orion Delta a ship can also get a technology from its own Bedrock plugin
 (scripts\Custom\Bedrock\Ships\<Ship>.py, above "###Do Not Change Below###"),
 e.g. "MVShields = 80" (-1 there = default value); Ships wins over it.
@@ -172,6 +179,12 @@ has "AutoFire" in Ships.py.
   it keeps firing until the point is PulseArcHysteresis points past that.
 - TapFire = 1: torpedoes and pulse weapons are fired with quick presses
   (faster than holding the key); phasers are always held.
+- SecondaryTorpedoes = 1: with Secondary Target switched ON for the ship
+  (torpedoes allowed), torpedo tubes that cannot reach the target fire at
+  other enemies they can reach, by themselves, with the same firing solution
+  rule and TorpedoReserve. Tubes that reach the main target keep their
+  torpedoes for it. If no tube reaches the main target, the free tubes fire
+  at the best secondary, in Single. 0 = off.
 - TargetMode: 0 = your selected target only; 1 = your target, and with none
   (or after a kill) the nearest enemy becomes your target; 2 = each weapon
   group picks its own enemy (phasers the nearest they can hit, torpedoes
@@ -180,6 +193,80 @@ Settings: scripts\Custom\Spaceframe\Modules\AutoFire\Config.py (each setting
 is described there; distances in km as shown in game). They are read once
 when a battle starts: edits apply from the next battle (Quick Battle), not
 mid-battle.
+
+Secondary Target module
+-----------------------
+With several enemies, many weapons sit idle because they cannot reach the
+target you selected. This module makes those weapons shoot at other enemies
+they can reach, while your main target keeps every weapon that reaches it.
+Only for the player's ship, and only if it has "SecondaryTarget" in Ships.py.
+- It works while a weapon group is firing at your main target, whether you
+  hold the fire key yourself or Auto Fire is on. Release the key and it
+  stops with it: it never fires on its own and fires only at the mission's
+  enemies (never at friendly or neutral ships).
+- Each cycle it looks at the nearest enemies (MaxCandidates) that are within
+  SecondaryRange percent of the phaser's full-damage range, and adds them
+  after your main target in the weapon group's target list. The game then
+  sends each weapon to a target it can reach, and the main target, being
+  first, keeps the weapons that reach it. Pulse weapons: all of them count
+  as free, the game decides which ones reach the main target.
+- It is switched on and off with a key (ToggleKey, default J) or with the
+  "Secondary Target" button in the tactical officer's menu (like Auto Fire);
+  the button shows the state. StartEnabled = 1 switches it on at the start of
+  each battle. While OFF the module does nothing to your weapons. If J already
+  does something in the game, on a ship with the technology the key now
+  toggles the module: change ToggleKey in the Config.
+- While ON, the "one shot at a time" restriction (single fire) of the ship's
+  phasers is switched off. Pulse weapons keep their own setting (single stays
+  single, multi stays multi) and torpedoes are unchanged. The
+  original value is put back when you switch it OFF, change ship, the ship
+  dies or the technology is lost. Switching OFF also removes the secondary
+  targets.
+- Weapons (Ships.py number or Config): 1 phasers, 2 torpedoes, 4 pulse
+  weapons.
+- Torpedoes: the tubes that cannot reach your main target (it is outside
+  their fixed 30 degree cone) shoot at the other enemies they reach, within
+  SecondaryTorpedoRange km (30; 0 = no limit). The game launches one torpedo
+  every 0.5 s per system, in turn, so the secondary ones wait their turn and
+  the main target goes first. Torpedo single fire is left as the ship has it.
+- Torpedoes with manual fire: while you hold the fire key the game only keeps
+  the torpedo group firing in short windows (one launch per window) and stops
+  it when the forward tubes run empty, even with the key held. The module
+  re-arms the group while the key is held, so the tubes that reach your main
+  target fire there and the free tubes launch at the secondary targets (e.g.
+  7 forward tubes at the main target, then the 7 aft tubes at a secondary).
+  Safety limits: at most 20 re-arms or 20 s per key press, only while the main
+  target stays the same; every release of the key clears it.
+- Torpedoes with Auto Fire: Auto Fire itself sends the tubes that cannot
+  reach the target to secondary targets they can reach (see
+  SecondaryTorpedoes in the Auto Fire section); tubes that reach the main
+  target keep their torpedoes for it.
+- The optional engine patches (one bank per target, log file) are described
+  in "Engine patches" below. The module works without them (several banks may
+  then shoot the same target, and there is no log file).
+Settings: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
+- ToggleKey (J), StartEnabled (1), Weapons (7), Interval (0.2 s),
+  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoRange (30 km),
+  Debug (0). Read once when a battle starts. With Debug = 1 (and the "fileio"
+  patch) the module writes its trace to Spaceframe_debug.log in the game folder.
+
+Engine patches (stbc.exe, optional)
+-----------------------------------
+Managed with "python tools/exe_patch.py status|apply|revert|verify" (needs
+Python with capstone, pefile and keystone). Each patch is hash-checked, works
+only on the build it checks for and keeps a backup stbc.exe.orig-<hash>. Close
+the game first. Use --patch NAME to pick one; "revert --all" undoes every
+patch; "status" lists both.
+- onebank (default when no name is given): one weapon bank per target. The game
+  itself only knows "one bank at a time"; with the patch, banks that reach
+  different targets fire together but two banks never share the same target.
+  Affects every ship of the game, AI included.
+- fileio: lets Python scripts open files. The game blocks it ("Securelevel
+  prevents file IO"); this patch is what allows Spaceframe_debug.log (Debug =
+  1). Apply with "python tools/exe_patch.py apply --patch fileio", undo with
+  "revert --patch fileio". SECURITY: while it is applied, ANY script of the
+  game or of other mods can read and write files; apply it only if you trust
+  everything you installed, and revert it when you no longer need the log.
 
 Which ship name to use
 ----------------------
@@ -260,7 +347,11 @@ Modules             - los modulos se activan automaticamente; ponga 0 para
                       desactivar uno, p. ej. "MVShields": 0
 Interval            - tiempo entre ciclos del temporizador (por defecto 0,25 s)
 EnableInMultiplayer - 1 = tambien funciona en multijugador (puede desincronizar)
-Debug               - 1 = muestra mensajes en la consola del Test Mode
+Debug               - 1 = escribe Spaceframe_debug.log en la carpeta del juego
+                      (necesita el parche opcional "fileio" del motor, vea
+                      "Parches del motor"; sin el, un aviso dice que el log no
+                      esta disponible). Maximo 5000 lineas por sesion, cada una
+                      con la hora del juego. Dejelo en 0 para jugar normal.
 En todos los Config.py, los porcentajes se escriben de 0 a 100 (50 = 50%), y
 las opciones de activar/desactivar como 1 o 0.
 
@@ -290,6 +381,9 @@ numero:
 - "AblativeArmor": capacidad como porcentaje del casco (por defecto:
   DefaultArmor, 50).
 - "AutoFire": Def (la nave puede usar el Auto Fire).
+- "SecondaryTarget": Def, o un numero que suma los tipos de arma: 1 phasers,
+  2 torpedos, 4 armas de pulso (p. ej. 5 = phasers y pulso). Def = la opcion
+  Weapons del modulo.
 En Orion Delta una nave tambien puede recibir una tecnologia desde su propio
 plugin Bedrock (scripts\Custom\Bedrock\Ships\<Nave>.py, encima de
 "###Do Not Change Below###"), p. ej. "MVShields = 80" (-1 alli = valor por
@@ -402,6 +496,12 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   disparando, sigue hasta que el punto se pase PulseArcHysteresis puntos.
 - TapFire = 1: torpedos y armas de pulso se disparan con toques rapidos
   (mas rapido que mantener la tecla); los phasers siempre se mantienen.
+- SecondaryTorpedoes = 1: con el Secondary Target ENCENDIDO en la nave
+  (torpedos permitidos), los tubos de torpedo que no alcanzan el objetivo
+  disparan solos a otros enemigos que si alcanzan, con la misma regla de
+  solucion de tiro y el TorpedoReserve. Los tubos que alcanzan el objetivo
+  principal guardan los torpedos para el. Si ninguno lo alcanza, los tubos
+  libres disparan al mejor secundario, en Single. 0 = apagado.
 - TargetMode: 0 = solo su objetivo seleccionado; 1 = su objetivo, y sin
   ninguno (o tras una baja) el enemigo mas cercano pasa a ser su objetivo;
   2 = cada grupo de armas elige su enemigo (phasers el mas cercano que
@@ -410,6 +510,87 @@ Configuracion: scripts\Custom\Spaceframe\Modules\AutoFire\Config.py (cada
 opcion esta descrita alli; distancias en km como se ven en el juego). Se
 leen una vez al empezar la batalla: los cambios valen desde la proxima
 batalla (Quick Battle), no durante la actual.
+
+Modulo Secondary Target
+-----------------------
+Con varios enemigos, muchas armas quedan paradas porque no alcanzan el
+objetivo que usted selecciono. Este modulo hace que esas armas disparen a
+otros enemigos que si alcanzan, mientras su objetivo principal conserva todas
+las armas que lo alcanzan. Solo para la nave del jugador, y solo si tiene
+"SecondaryTarget" en Ships.py.
+- Funciona mientras un grupo de armas dispara al objetivo principal, ya sea
+  porque usted mantiene la tecla de disparo o porque el Auto Fire esta
+  encendido. Si suelta la tecla, el modulo para con ella: nunca dispara por
+  su cuenta y solo dispara a los enemigos de la mision (nunca a naves
+  aliadas o neutrales).
+- En cada ciclo mira los enemigos mas cercanos (MaxCandidates) que esten
+  dentro de SecondaryRange por ciento del alcance de dano maximo del phaser,
+  y los agrega despues de su objetivo principal en la lista de objetivos del
+  grupo. El juego envia cada arma a un objetivo que alcanza, y el principal,
+  por ir primero, conserva las armas que lo alcanzan. Armas de pulso: todas
+  cuentan como libres, el juego decide cuales alcanzan el principal.
+- Se enciende y apaga con una tecla (ToggleKey, por defecto J) o con el boton
+  "Secondary Target" del menu del oficial tactico (como el Auto Fire); el
+  boton muestra el estado. StartEnabled = 1 enciende el modulo al empezar cada
+  batalla. Apagado, el modulo no hace nada con las armas. Si J ya hace algo en
+  el juego, en una nave con la tecnologia la tecla pasa a encender/apagar el
+  modulo: cambie ToggleKey en el Config.
+- Mientras esta ENCENDIDO, la restriccion de "un disparo a la vez" (single
+  fire) de los phasers de la nave queda desactivada. Las armas de pulso
+  mantienen su propio ajuste (single sigue single, multi sigue multi) y los
+  torpedos no cambian. El valor original se devuelve al APAGAR, al cambiar de
+  nave, cuando la nave muere o al perder la tecnologia. Al apagar tambien se
+  quitan los objetivos secundarios.
+- Weapons (numero de Ships.py o Config): 1 phasers, 2 torpedos, 4 armas de
+  pulso.
+- Torpedos: los tubos que no alcanzan su objetivo principal (esta fuera de su
+  cono fijo de 30 grados) disparan a los otros enemigos que si alcanzan, a
+  SecondaryTorpedoRange km o menos (30; 0 = sin limite). El juego lanza un
+  torpedo cada 0,5 s por sistema, por turnos: los secundarios esperan su
+  turno y el objetivo principal va primero. El single fire de los torpedos se
+  deja como lo define la nave.
+- Torpedos con disparo manual: mientras mantiene la tecla de disparo, el juego
+  solo mantiene el grupo de torpedos disparando en ventanas cortas (un
+  lanzamiento por ventana) y lo detiene cuando los tubos de proa se vacian,
+  aunque la tecla siga apretada. El modulo vuelve a armar el grupo mientras la
+  tecla esta apretada: los tubos que alcanzan su objetivo principal disparan
+  alli y los tubos libres lanzan a los objetivos secundarios (p. ej. 7 tubos de
+  proa al principal y despues los 7 de popa a un secundario). Limites de
+  seguridad: como maximo 20 rearmados o 20 s por pulsacion, solo mientras el
+  objetivo principal sea el mismo; cada vez que suelta la tecla se limpia.
+- Torpedos con Auto Fire: el propio Auto Fire manda los tubos que no
+  alcanzan el objetivo a objetivos secundarios que si alcanzan (vea
+  SecondaryTorpedoes en la seccion del Auto Fire); los tubos que alcanzan
+  el objetivo principal guardan los torpedos para el.
+- Los parches opcionales del motor (un banco por objetivo, archivo de log) se
+  describen en "Parches del motor" mas abajo. El modulo funciona sin ellos
+  (varios bancos pueden disparar al mismo objetivo, y no hay archivo de log).
+Configuracion: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
+- ToggleKey (J), StartEnabled (1), Weapons (7), Interval (0,2 s),
+  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoRange (30 km),
+  Debug (0). Se leen una vez al empezar la batalla. Con Debug = 1 (y el parche
+  "fileio") el modulo escribe su traza en Spaceframe_debug.log, en la carpeta
+  del juego.
+
+Parches del motor (stbc.exe, opcionales)
+----------------------------------------
+Se gestionan con "python tools/exe_patch.py status|apply|revert|verify"
+(necesita Python con capstone, pefile y keystone). Cada parche comprueba el
+hash, sirve solo para la build que verifica y guarda una copia
+stbc.exe.orig-<hash>. Cierre el juego antes. Use --patch NOMBRE para elegir
+uno; "revert --all" deshace todos; "status" lista ambos.
+- onebank (por defecto si no se da nombre): un banco de armas por objetivo. El
+  juego solo conoce "un banco a la vez"; con el parche, los bancos que
+  alcanzan objetivos distintos disparan juntos, pero dos bancos nunca
+  comparten el mismo objetivo. Afecta a todas las naves del juego, tambien las
+  de la IA.
+- fileio: permite que los scripts Python abran archivos. El juego lo bloquea
+  ("Securelevel prevents file IO"); este parche es lo que permite
+  Spaceframe_debug.log (Debug = 1). Se aplica con "python tools/exe_patch.py
+  apply --patch fileio" y se deshace con "revert --patch fileio". SEGURIDAD:
+  mientras este aplicado, CUALQUIER script del juego o de otros mods puede leer
+  y escribir archivos; apliquelo solo si confia en todo lo que instalo, y
+  deshagalo cuando ya no necesite el log.
 
 Que nombre de nave usar
 -----------------------
@@ -490,7 +671,11 @@ Modules             - os modulos sao ligados automaticamente; coloque 0 para
                       desligar um, ex. "MVShields": 0
 Interval            - tempo entre os ciclos do timer (padrao 0,25 s)
 EnableInMultiplayer - 1 = funciona tambem no multiplayer (pode dessincronizar)
-Debug               - 1 = mostra mensagens no console do Test Mode
+Debug               - 1 = grava Spaceframe_debug.log na pasta do jogo (precisa do
+                      patch opcional "fileio" do motor, veja "Patches do
+                      motor"; sem ele, um aviso diz que o log nao esta
+                      disponivel). Maximo 5000 linhas por sessao, cada uma com
+                      a hora do jogo. Deixe em 0 para jogar normal.
 Em todos os Config.py, porcentagens sao escritas de 0 a 100 (50 = 50%), e
 as opcoes de ligar/desligar como 1 ou 0.
 
@@ -518,6 +703,9 @@ Def = o valor padrao definido no Config.py do modulo; ou um numero:
 - "AblativeArmor": capacidade como porcentagem do casco (padrao:
   DefaultArmor, 50).
 - "AutoFire": Def (a nave pode usar o Auto Fire).
+- "SecondaryTarget": Def, ou um numero que soma os tipos de arma: 1 phasers,
+  2 torpedos, 4 armas de pulso (ex. 5 = phasers e pulso). Def = a opcao
+  Weapons do modulo.
 No Orion Delta uma nave tambem pode receber uma tecnologia pelo proprio
 plugin Bedrock (scripts\Custom\Bedrock\Ships\<Nave>.py, acima de
 "###Do Not Change Below###"), ex. "MVShields = 80" (-1 ali = valor padrao).
@@ -627,6 +815,12 @@ tiver "AutoFire" no Ships.py.
   comecar a disparar, continua ate o ponto passar PulseArcHysteresis pontos.
 - TapFire = 1: torpedos e armas de pulso sao disparados com toques rapidos
   (mais rapido que segurar a tecla); os phasers sao sempre segurados.
+- SecondaryTorpedoes = 1: com o Secondary Target LIGADO na nave (torpedos
+  permitidos), os tubos de torpedo que nao alcancam o alvo disparam, por
+  conta propria, contra outros inimigos que alcancam, com a mesma regra de
+  solucao de tiro e o TorpedoReserve. Os tubos que alcancam o alvo principal
+  guardam os torpedos para ele. Se nenhum tubo o alcanca, os tubos livres
+  atiram no melhor secundario, em Single. 0 = desligado.
 - TargetMode: 0 = so o alvo que voce selecionou; 1 = o seu alvo, e sem
   nenhum (ou depois de um abate) o inimigo mais proximo vira o seu alvo;
   2 = cada grupo de armas escolhe o proprio inimigo (phasers o mais
@@ -635,6 +829,83 @@ Configuracao: scripts\Custom\Spaceframe\Modules\AutoFire\Config.py (cada
 opcao esta descrita la; distancias em km como aparecem no jogo). Sao lidas
 uma vez ao comecar a batalha: as mudancas valem a partir da proxima batalha
 (Quick Battle), nao durante a atual.
+
+Modulo Secondary Target
+-----------------------
+Com varios inimigos, muitas armas ficam paradas porque nao alcancam o alvo
+que voce selecionou. Este modulo faz essas armas atirarem em outros inimigos
+que elas alcancam, enquanto o seu alvo principal continua com todas as armas
+que o alcancam. So para a nave do jogador, e so se ela tiver
+"SecondaryTarget" no Ships.py.
+- Funciona enquanto um grupo de armas atira no alvo principal, seja porque
+  voce segura a tecla de disparo, seja porque o Auto Fire esta ligado. Soltou
+  a tecla, o modulo para junto: nunca dispara sozinho e so atira nos inimigos
+  da missao (nunca em naves aliadas ou neutras).
+- A cada ciclo olha os inimigos mais proximos (MaxCandidates) que estejam
+  dentro de SecondaryRange por cento do alcance de dano maximo do phaser, e
+  os coloca depois do alvo principal na lista de alvos do grupo. O jogo manda
+  cada arma para um alvo que ela alcanca, e o principal, por ser o primeiro,
+  fica com as armas que o alcancam. Armas de pulso: todas contam como livres,
+  o jogo decide quais alcancam o principal.
+- Liga e desliga com uma tecla (ToggleKey, padrao J) ou com o botao "Secondary
+  Target" no menu do oficial tatico (como o Auto Fire); o botao mostra o
+  estado. StartEnabled = 1 liga o modulo no inicio de cada batalha. Desligado,
+  o modulo nao faz nada nas armas. Se J ja faz algo no jogo, em uma nave com a
+  tecnologia a tecla passa a ligar/desligar o modulo: troque ToggleKey no Config.
+- Enquanto esta LIGADO, a restricao de "um tiro de cada vez" (single fire) dos
+  phasers da nave fica desativada. As armas de pulso mantem o proprio ajuste
+  (single continua single, multi continua multi) e os torpedos nao mudam. O valor original volta ao DESLIGAR, ao trocar de nave, quando a
+  nave morre ou ao perder a tecnologia. Ao desligar, os alvos secundarios
+  tambem sao retirados.
+- Weapons (numero do Ships.py ou Config): 1 phasers, 2 torpedos, 4 armas de
+  pulso.
+- Torpedos: os tubos que nao alcancam o alvo principal (ele esta fora do cone
+  fixo de 30 graus deles) atiram nos outros inimigos que alcancam, a
+  SecondaryTorpedoRange km ou menos (30; 0 = sem limite). O jogo lanca um
+  torpedo a cada 0,5 s por sistema, em revezamento: os secundarios esperam a
+  vez e o alvo principal vai primeiro. O single fire dos torpedos fica como a
+  nave define.
+- Torpedos com disparo manual: enquanto voce segura a tecla de disparo, o jogo
+  so mantem o grupo de torpedos atirando em janelas curtas (um lancamento por
+  janela) e o para quando os tubos de proa esvaziam, mesmo com a tecla
+  segurada. O modulo rearma o grupo enquanto a tecla esta segurada: os tubos
+  que alcancam o alvo principal atiram nele e os tubos livres lancam nos alvos
+  secundarios (ex.: 7 tubos de proa no principal, depois os 7 de popa em um
+  secundario). Limites de seguranca: no maximo 20 rearmes ou 20 s por
+  pressionamento, so enquanto o alvo principal for o mesmo; toda vez que solta
+  a tecla isso e limpo.
+- Torpedos com Auto Fire: o proprio Auto Fire manda os tubos que nao
+  alcancam o alvo para alvos secundarios que eles alcancam (veja
+  SecondaryTorpedoes na secao do Auto Fire); os tubos que alcancam o alvo
+  principal guardam os torpedos para ele.
+- Os patches opcionais do motor (um banco por alvo, arquivo de log) estao
+  descritos em "Patches do motor" abaixo. O modulo funciona sem eles (varios
+  bancos podem atirar no mesmo alvo, e nao ha arquivo de log).
+Configuracao: scripts\Custom\Spaceframe\Modules\SecondaryTarget\Config.py
+- ToggleKey (J), StartEnabled (1), Weapons (7), Interval (0,2 s),
+  MaxCandidates (4), SecondaryRange (100), SecondaryTorpedoRange (30 km),
+  Debug (0). Sao lidas uma vez ao comecar a batalha. Com Debug = 1 (e o patch
+  "fileio") o modulo grava seu rastro em Spaceframe_debug.log, na pasta do
+  jogo.
+
+Patches do motor (stbc.exe, opcionais)
+--------------------------------------
+Sao gerenciados com "python tools/exe_patch.py status|apply|revert|verify"
+(precisa de Python com capstone, pefile e keystone). Cada patch confere o
+hash, vale so para a build que verifica e guarda uma copia
+stbc.exe.orig-<hash>. Feche o jogo antes. Use --patch NOME para escolher um;
+"revert --all" desfaz todos; "status" lista os dois.
+- onebank (padrao se nenhum nome for dado): um banco de armas por alvo. O jogo
+  so conhece "um banco por vez"; com o patch, bancos que alcancam alvos
+  diferentes atiram juntos, mas dois bancos nunca dividem o mesmo alvo. Afeta
+  todas as naves do jogo, inclusive as da IA.
+- fileio: permite que scripts Python abram arquivos. O jogo bloqueia isso
+  ("Securelevel prevents file IO"); este patch e o que permite o
+  Spaceframe_debug.log (Debug = 1). Aplique com "python tools/exe_patch.py
+  apply --patch fileio" e desfaca com "revert --patch fileio". SEGURANCA:
+  enquanto estiver aplicado, QUALQUER script do jogo ou de outros mods pode ler
+  e gravar arquivos; aplique so se confia em tudo o que instalou, e desfaca
+  quando nao precisar mais do log.
 
 Qual nome de nave usar
 ----------------------
