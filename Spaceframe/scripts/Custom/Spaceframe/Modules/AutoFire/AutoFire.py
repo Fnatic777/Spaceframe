@@ -15,6 +15,14 @@
 #	  firing solution; torpedoes and pulse tapped (TapFire).
 #	- Torpedo tubes that cannot reach the target fire at secondary targets
 #	  they can reach, when Secondary Target allows it (SecondaryTorpedoes).
+#	- A phaser group whose banks cannot reach the main target fires at a
+#	  secondary target a ready bank reaches, when Secondary Target allows it
+#	  (SecondaryPhasers); it returns to the main target as soon as a bank reaches it.
+#	- Arc percent rule (PulseRule 3 / TorpedoRule 3): a weapon fires when the
+#	  predicted target point is inside its arc by a percentage that depends on
+#	  the distance. With Secondary Target it also chooses the secondary
+#	  targets (here under Auto Fire; for manual fire Secondary Target asks
+#	  ArcRuleOn / ArcReaches and only filters the secondaries it adds).
 #	- Targets: the player's, the nearest enemy, or each group's best
 #	  (TargetMode).
 #	Settings: Modules\AutoFire\Config.py
@@ -45,8 +53,10 @@ g_dScore = {}		# weapon group -> last firing solution (torpedoes, pulse)
 g_iPlayerSpread = None	# the player's torpedo spread, to go back to
 g_iSetSpread = None	# the spread Auto Fire last set
 g_iSpreadShipID = None	# ship whose spread Auto Fire changed
-g_dArcReady = {}	# (pulse weapon ID, target ID) -> 1 while 'ready' for that target (PulseRule 3 hysteresis)
-g_dSecHead = {}		# held torpedo group -> ID of the secondary it was started at (no main shot)
+g_dArcReady = {}	# (weapon ID, target ID) -> 1 while 'ready' for that target (arc percent hysteresis, pulse and torpedo)
+g_dArcSec = {}		# weapon group -> IDs of the secondaries of its last plan (their hysteresis keys survive ArcSettle)
+g_dPlanNote = {}	# weapon group -> last plan line logged (Debug only, logged on change)
+g_dSecHead = {}		# held torpedo/pulse/phaser group -> ID of the secondary it was started at (no main shot)
 g_bTorpPlanLogged = 0	# 1 once a torpedo plan error was logged
 
 # Settings read once by LoadConfig() at Start (the hot path never asks Config).
@@ -64,11 +74,18 @@ g_fPulseMinSolution = 70.0
 g_iPulseRule = 1
 g_iTapFire = 1
 g_iSecondaryTorpedoes = 1
+g_iSecondaryPhasers = 1
 g_fArcFar = 50.0		# PulseArcPercentFar
 g_fArcNear = 90.0		# PulseArcPercentNear
 g_fArcFarDistance = 171.0	# PulseArcFarDistance, world units
 g_fArcNearDistance = 29.0	# PulseArcNearDistance, world units
 g_fArcHysteresis = 10.0		# PulseArcHysteresis, percentage points
+g_fTorpArcFar = 50.0		# TorpedoArcPercentFar
+g_fTorpArcNear = 90.0		# TorpedoArcPercentNear
+g_fTorpArcFarDistance = 171.0	# TorpedoArcFarDistance, world units
+g_fTorpArcNearDistance = 29.0	# TorpedoArcNearDistance, world units
+g_fTorpArcHysteresis = 10.0	# TorpedoArcHysteresis, percentage points
+PULSE_ARC_LIFETIME = 0		# 1 = pulse rule 3 also drops shots beyond the projectile lifetime (off: as before)
 
 KEY_HANDLER = "Custom.Spaceframe.Modules.AutoFire.AutoFire.OnKeyboard"
 BUTTON_HANDLER = "Custom.Spaceframe.Modules.AutoFire.AutoFire.OnMenuButton"
@@ -88,8 +105,15 @@ def LoadConfig():
 	global g_fSpreadMinSolution, g_fSpreadMinDistance, g_fPulseMinSolution
 	global g_iPulseRule, g_iTapFire, g_bArcLogged, g_bArcZeroLogged
 	global g_fArcFar, g_fArcNear, g_fArcFarDistance, g_fArcNearDistance, g_fArcHysteresis
-	global g_iSecondaryTorpedoes, g_bTorpPlanLogged
+	global g_iSecondaryTorpedoes, g_bTorpPlanLogged, g_dPlanNote, g_iSecondaryPhasers
+	global g_fTorpArcFar, g_fTorpArcNear, g_fTorpArcFarDistance, g_fTorpArcNearDistance, g_fTorpArcHysteresis
 	pConfig = GetConfig()
+	g_dPlanNote = {}
+	g_fTorpArcFar = float(getattr(pConfig, "TorpedoArcPercentFar", 50))
+	g_fTorpArcNear = float(getattr(pConfig, "TorpedoArcPercentNear", 90))
+	g_fTorpArcFarDistance = KilometersToUnits(float(getattr(pConfig, "TorpedoArcFarDistance", 30)))
+	g_fTorpArcNearDistance = KilometersToUnits(float(getattr(pConfig, "TorpedoArcNearDistance", 5)))
+	g_fTorpArcHysteresis = float(getattr(pConfig, "TorpedoArcHysteresis", 10))
 	g_fArcFar = float(getattr(pConfig, "PulseArcPercentFar", 50))
 	g_fArcNear = float(getattr(pConfig, "PulseArcPercentNear", 90))
 	g_fArcFarDistance = KilometersToUnits(float(getattr(pConfig, "PulseArcFarDistance", 30)))
@@ -108,6 +132,7 @@ def LoadConfig():
 	g_iPulseRule = int(getattr(pConfig, "PulseRule", 1))
 	g_iTapFire = int(getattr(pConfig, "TapFire", 1))
 	g_iSecondaryTorpedoes = int(getattr(pConfig, "SecondaryTorpedoes", 1))
+	g_iSecondaryPhasers = int(getattr(pConfig, "SecondaryPhasers", 1))
 	g_bTorpPlanLogged = 0
 	g_bArcLogged = 0
 	g_bArcZeroLogged = 0
@@ -499,11 +524,14 @@ def PhaserReady(pBank, pTarget):
 	# 1 if this phaser bank should fire at the target now.
 	if not pBank.CanHit(pTarget.GetWorldLocation()):
 		return 0
-	if pBank.GetChargePercentage() * 100.0 < g_fPhaserMinCharge:
-		return 0
-	fRange = pBank.GetMaxDamageDistance() * g_fPhaserRange / 100.0
-	if GetDistance(pBank, pTarget) > fRange:
-		return 0
+	# PhaserMinCharge 0 = no charge check; PhaserRange 0 = no range check.
+	if g_fPhaserMinCharge > 0.0:
+		if pBank.GetChargePercentage() * 100.0 < g_fPhaserMinCharge:
+			return 0
+	if g_fPhaserRange > 0.0:
+		fRange = pBank.GetMaxDamageDistance() * g_fPhaserRange / 100.0
+		if GetDistance(pBank, pTarget) > fRange:
+			return 0
 	return 1
 
 
@@ -533,18 +561,45 @@ def ApplySolutionConfig():
 	pSolution.PULSE_CONE_NEAR_DISTANCE = KilometersToUnits(float(getattr(pConfig, "PulseConeNearDistance", 5)))
 
 
+def TorpedoShot(pShip, pTorpedoes, pTarget, vOffset):
+	# TorpedoRule 3: (lead point, projectile speed, projectile lifetime), worked
+	# out once per target from the SHIP's location (tube offsets are metres,
+	# distances km). On error: (the target's location, 0.0, 0.0).
+	try:
+		pSolution = GetSolution()
+		tInfo = pSolution.GetProjectileInfo(None, pTorpedoes)
+		vPoint = pSolution.LeadPoint(pTarget, vOffset, pShip.GetWorldLocation(), tInfo[0])
+		return (vPoint, tInfo[0], tInfo[3])
+	except:
+		return (pTarget.GetWorldLocation(), 0.0, 0.0)
+
+
+def TubeScore(pShip, pTorpedoes, pTube, pTarget, vOffset, tInfo, tFrame, tShot):
+	# One tube's score against the target: TorpedoRule 3 = arc percent on the
+	# tube's cone; otherwise exactly the firing solution / cone of Solution.Score.
+	if g_iTorpedoRule == 3:
+		return ArcScore(pShip, pTorpedoes, pTube, pTarget, vOffset, "torpedo", 1, tFrame, tShot)
+	return GetSolution().Score(pShip, pTarget, vOffset, pTube, pTube.CalculateRoughDirection(), tInfo)
+
+
 def BestTorpedoScore(pShip, pSystem, pTarget):
 	# Best firing solution among the loaded tubes (0 if none is loaded).
+	# TorpedoRule 3: every tube is scored (ArcScore checks readiness itself and
+	# drops the hysteresis key of an unready tube).
 	pSolution = GetSolution()
 	tInfo = pSolution.GetProjectileInfo(None, pSystem)
 	vOffset = GetOffset(pShip, pTarget)
+	tShot = None
+	if g_iTorpedoRule == 3:
+		tShot = TorpedoShot(pShip, pSystem, pTarget, vOffset)
 	fBest = 0.0
 	for iChild in range(pSystem.GetNumChildSubsystems()):
 		pTube = App.TorpedoTube_Cast(pSystem.GetChildSubsystem(iChild))
-		if (pTube != None) and (pTube.GetNumReady() > 0):
-			fScore = pSolution.Score(pShip, pTarget, vOffset, pTube, pTube.CalculateRoughDirection(), tInfo)
-			if fScore > fBest:
-				fBest = fScore
+		if pTube != None:
+			if (tShot != None) or (pTube.GetNumReady() > 0):
+				fScore = TubeScore(pShip, pSystem, pTube, pTarget, vOffset, tInfo, None, tShot)
+				if fScore > fBest:
+					fBest = fScore
 	return fBest
 
 
@@ -562,6 +617,8 @@ def TorpedoesLeft(pTorpedoes):
 def TorpedoTarget(pShip, pTorpedoes, lTargets, eGroup):
 	# The target with the best firing solution, if good enough.
 	if TorpedoesLeft(pTorpedoes) <= g_iTorpedoReserve:
+		if g_iTorpedoRule == 3:
+			ArcSettle(pTorpedoes, ArcKeep(eGroup, None))
 		return None
 	pBest = None
 	fBest = -1.0
@@ -571,15 +628,27 @@ def TorpedoTarget(pShip, pTorpedoes, lTargets, eGroup):
 			fBest = fScore
 			pBest = pTarget
 	if pBest == None:
+		if g_iTorpedoRule == 3:
+			ArcSettle(pTorpedoes, ArcKeep(eGroup, None))
 		return None
 	g_dScore[eGroup] = fBest
-	fMinimum = g_fTorpedoMinSolution
-	if g_iTorpedoRule == 2:
-		fMinimum = 1.0	# firing cone: any tube inside it
+	fMinimum = TorpMinimum()
 	if fBest >= fMinimum:
+		if g_iTorpedoRule == 3:
+			ArcSettle(pTorpedoes, ArcKeep(eGroup, pBest.GetObjID()))
 		ApplySpread(pShip, pTorpedoes, pBest, fBest)
 		return pBest
+	if g_iTorpedoRule == 3:
+		ArcSettle(pTorpedoes, ArcKeep(eGroup, None))
 	return None
+
+
+def TorpMinimum():
+	# Lowest score that launches a torpedo: the firing cone (rule 2) and arc
+	# percent (rule 3) only need a tube inside them.
+	if (g_iTorpedoRule == 2) or (g_iTorpedoRule == 3):
+		return 1.0
+	return g_fTorpedoMinSolution
 
 
 ###############################################################################
@@ -589,12 +658,12 @@ def TorpedoTarget(pShip, pTorpedoes, lTargets, eGroup):
 #	tube, and builds the group's target list in the same call that presses
 #	the group (a tube fires at the first listed target it reaches).
 ###############################################################################
-def GetSecondaryTarget():
-	# The SecondaryTarget module if it is active and offers TorpedoCandidates
-	# (looked up at each press, never kept).
+def GetSecondaryTarget(sFunc="TorpedoCandidates"):
+	# The SecondaryTarget module if it is active and offers the function
+	# (TorpedoCandidates, PulseCandidates or PhaserCandidates; looked up at each press, never kept).
 	try:
 		pModule = g_pCore.GetModule("SecondaryTarget")
-		if (pModule != None) and hasattr(pModule, "TorpedoCandidates"):
+		if (pModule != None) and hasattr(pModule, sFunc):
 			return pModule
 	except:
 		pass
@@ -606,6 +675,40 @@ def ManagesTorpedoSecondaries(eGroup):
 	# (SecondaryTarget then leaves the group alone).
 	try:
 		if g_iSecondaryTorpedoes and IsEnabled() and (not g_dManual.get(eGroup)):
+			return 1
+	except:
+		pass
+	return 0
+
+
+def ManagesPulseSecondaries(eGroup):
+	# 1 while Auto Fire builds the pulse secondaries of this group itself
+	# (PulseRule 3 only; SecondaryTarget then leaves the group alone).
+	try:
+		if (g_iPulseRule == 3) and IsEnabled() and (not g_dManual.get(eGroup)):
+			return 1
+	except:
+		pass
+	return 0
+
+
+def ArcRuleOn(sKind):
+	# Public: 1 when the arc-percent rule is selected for this kind
+	# ("pulse" = PulseRule 3, "torpedo" = TorpedoRule 3). Also read by
+	# SecondaryTarget for its manual-fire filter.
+	if (sKind == "pulse") and (g_iPulseRule == 3):
+		return 1
+	if (sKind == "torpedo") and (g_iTorpedoRule == 3):
+		return 1
+	return 0
+
+
+def ArcReaches(pShip, pSystem, pWeapon, pTarget, sKind):
+	# Public (manual-fire filter): 1 when this weapon has the target inside its
+	# allowed arc percent. Needs no charge (no flapping of the list while the
+	# free weapon recharges). Any error: 0.
+	try:
+		if ArcScore(pShip, pSystem, pWeapon, pTarget, None, sKind, 0) >= 1.0:
 			return 1
 	except:
 		pass
@@ -677,9 +780,12 @@ def SecondaryTorpedoPlan(pShip, pTorpedoes, pMain, bMainShot):
 	if len(lFree) == 0:
 		return []
 	tInfo = GetSolution().GetProjectileInfo(None, pTorpedoes)
-	fMin = g_fTorpedoMinSolution
-	if g_iTorpedoRule == 2:
-		fMin = 1.0
+	fMin = TorpMinimum()
+	lFrames = []
+	if g_iTorpedoRule == 3:
+		# One frame per free tube for the whole plan (about ten engine calls each).
+		for pTube in lFree:
+			lFrames.append(GetSolution().TubeFrame(pShip, pTube))
 	iMain = pMain.GetObjID()
 	lScores = []
 	lPlan = []
@@ -691,9 +797,16 @@ def SecondaryTorpedoPlan(pShip, pTorpedoes, pMain, bMainShot):
 					vPoint = pCandidate.GetWorldLocation()
 					if bMainShot or (not AnyTubeInArc(lMainReady, vPoint)):
 						fBest = -1.0
-						for pTube in lFree:
+						tShot = None
+						if g_iTorpedoRule == 3:
+							tShot = TorpedoShot(pShip, pTorpedoes, pCandidate, None)
+						for iTube in range(len(lFree)):
+							pTube = lFree[iTube]
 							if TubeInArc(pTube, vPoint, 0):
-								fScore = GetSolution().Score(pShip, pCandidate, None, pTube, pTube.CalculateRoughDirection(), tInfo)
+								tFrame = None
+								if g_iTorpedoRule == 3:
+									tFrame = lFrames[iTube]
+								fScore = TubeScore(pShip, pTorpedoes, pTube, pCandidate, None, tInfo, tFrame, tShot)
 								if fScore > fBest:
 									fBest = fScore
 						if fBest >= fMin:
@@ -731,6 +844,239 @@ def PlanTorpedoGroup(pShip, pTorpedoes, pTarget, lTargets, eGroup):
 	for tEntry in lPlan[1:]:
 		lIDs.append(tEntry[1])
 	return (pHead, lIDs, 1)
+
+
+def SecondaryPulsePlan(pShip, pPulse, pMain, bMainShot):
+	# PulseRule 3: [(score, ship ID)] of the secondaries the free charged pulse
+	# weapons can hit inside the allowed arc percent, best first. Free weapon =
+	# charged and the main target is outside its arc. Without a main shot, a
+	# secondary that a charged main-reaching weapon also has in arc is dropped,
+	# so no main-reaching weapon can fire.
+	if (g_iPulseRule != 3) or (pMain == None):
+		return []
+	pST = GetSecondaryTarget("PulseCandidates")
+	if pST == None:
+		return []
+	try:
+		lIDs = pST.PulseCandidates(pShip, pPulse, pMain)
+	except:
+		LogPlanError("PulseCandidates error: " + str(sys.exc_info()[1]))
+		return []
+	if (lIDs == None) or (len(lIDs) == 0):
+		return []
+	vMain = pMain.GetWorldLocation()
+	lMainReady = []
+	lFree = []
+	for iChild in range(pPulse.GetNumChildSubsystems()):
+		pWeapon = App.PulseWeapon_Cast(pPulse.GetChildSubsystem(iChild))
+		if (pWeapon != None) and WeaponReady(pWeapon, "pulse"):
+			if TubeInArc(pWeapon, vMain, 1):
+				lMainReady.append(pWeapon)
+			else:
+				lFree.append(pWeapon)
+	if len(lFree) == 0:
+		return []
+	iMain = pMain.GetObjID()
+	lScores = []
+	lPlan = []
+	for iID in lIDs:
+		if iID != iMain:
+			try:
+				pCandidate = App.ShipClass_GetObjectByID(None, iID)
+				if IsLive(pCandidate):
+					vPoint = pCandidate.GetWorldLocation()
+					if bMainShot or (not AnyTubeInArc(lMainReady, vPoint)):
+						fBest = -1.0
+						for pWeapon in lFree:
+							if TubeInArc(pWeapon, vPoint, 0):
+								fScore = ArcScore(pShip, pPulse, pWeapon, pCandidate, None, "pulse", 1)
+								if fScore > fBest:
+									fBest = fScore
+						if fBest >= 1.0:
+							i = 0
+							while (i < len(lScores)) and (lScores[i] >= fBest):
+								i = i + 1
+							lScores.insert(i, fBest)
+							lPlan.insert(i, (fBest, iID))
+			except:
+				LogPlanError("Pulse secondary " + str(iID) + " skipped: " + str(sys.exc_info()[1]))
+	return lPlan
+
+
+def PlanPulseGroup(pShip, pPulse, pTarget, lTargets, eGroup):
+	# (head target, secondary IDs, 1 if the head is a secondary) for a pulse
+	# group about to be pressed (PulseRule 3), as PlanTorpedoGroup, no spread.
+	if pTarget != None:
+		lPlan = SecondaryPulsePlan(pShip, pPulse, pTarget, 1)
+		lIDs = []
+		for tEntry in lPlan:
+			lIDs.append(tEntry[1])
+		return (pTarget, lIDs, 0)
+	if len(lTargets) == 0:
+		return (None, [], 0)
+	lPlan = SecondaryPulsePlan(pShip, pPulse, lTargets[0], 0)
+	if len(lPlan) == 0:
+		return (None, [], 0)
+	pHead = App.ShipClass_GetObjectByID(None, lPlan[0][1])
+	if not IsLive(pHead):
+		return (None, [], 0)
+	g_dScore[eGroup] = lPlan[0][0]
+	lIDs = []
+	for tEntry in lPlan[1:]:
+		lIDs.append(tEntry[1])
+	return (pHead, lIDs, 1)
+
+
+def Plannable(pSystem):
+	# "torpedo", "pulse" (PulseRule 3 only) or None: the groups whose list Auto
+	# Fire builds at every press.
+	if App.TorpedoSystem_Cast(pSystem) != None:
+		return "torpedo"
+	if (g_iPulseRule == 3) and (App.PulseWeaponSystem_Cast(pSystem) != None):
+		return "pulse"
+	return None
+
+
+def PlanGroup(pShip, pSystem, pTarget, lTargets, eGroup):
+	# The plan of a group about to be pressed (see PlanTorpedoGroup).
+	pTorpedoes = App.TorpedoSystem_Cast(pSystem)
+	if pTorpedoes != None:
+		return PlanTorpedoGroup(pShip, pTorpedoes, pTarget, lTargets, eGroup)
+	pPulse = App.PulseWeaponSystem_Cast(pSystem)
+	if (pPulse != None) and (g_iPulseRule == 3):
+		return PlanPulseGroup(pShip, pPulse, pTarget, lTargets, eGroup)
+	return (pTarget, [], 0)
+
+
+def IsPhaserGroup(pSystem):
+	# 1 for a group that is neither torpedoes nor pulse weapons (phaser banks).
+	try:
+		if App.TorpedoSystem_Cast(pSystem) != None:
+			return 0
+		if App.PulseWeaponSystem_Cast(pSystem) != None:
+			return 0
+		return 1
+	except:
+		return 0
+
+
+def SecondaryPhaserPlan(pShip, pSystem, pMain):
+	# IDs of the secondaries a ready phaser bank can hit now, nearest first (the
+	# order of SecondaryTarget.PhaserCandidates). Used only when no bank can hit
+	# the main target.
+	if (not g_iSecondaryPhasers) or (pMain == None):
+		return []
+	pST = GetSecondaryTarget("PhaserCandidates")
+	if pST == None:
+		return []
+	try:
+		lIDs = pST.PhaserCandidates(pShip, pSystem, pMain)
+	except:
+		LogPlanError("PhaserCandidates error: " + str(sys.exc_info()[1]))
+		return []
+	if (lIDs == None) or (len(lIDs) == 0):
+		return []
+	iMain = pMain.GetObjID()
+	lPlan = []
+	for iID in lIDs:
+		if iID != iMain:
+			try:
+				pCandidate = App.ShipClass_GetObjectByID(None, iID)
+				if IsLive(pCandidate) and PhasersReady(pSystem, pCandidate):
+					lPlan.append(iID)
+			except:
+				LogPlanError("Phaser secondary " + str(iID) + " skipped: " + str(sys.exc_info()[1]))
+	return lPlan
+
+
+def PhaserHeadReady(pSystem, iHead):
+	# 1 while the secondary a held phaser group was started at is still a live
+	# enemy that a ready bank can hit.
+	try:
+		pHead = App.ShipClass_GetObjectByID(None, iHead)
+		if IsLive(pHead) and IsEnemy(pHead) and PhasersReady(pSystem, pHead):
+			return 1
+	except:
+		pass
+	return 0
+
+
+def PlanPhaserStep(pShip, pSystem, pTarget, lTargets, eGroup):
+	# (target, secondary IDs, 1 if the target is a secondary, 1 = keep the group
+	# as it is) for a phaser group. With a target in reach nothing changes
+	# (Secondary Target adds secondaries while the group fires). Without one,
+	# the group is started at the first secondary a ready bank reaches; a group
+	# already started that way is kept while that secondary stays reachable (no
+	# stop and start every cycle).
+	global g_dPlanNote
+	if (not g_iSecondaryPhasers) or (len(lTargets) == 0):
+		return (pTarget, [], 0, 0)
+	if pTarget != None:
+		if g_dPlanNote.has_key(eGroup):
+			del g_dPlanNote[eGroup]
+		return (pTarget, [], 0, 0)
+	iHead = g_dSecHead.get(eGroup)
+	if (iHead != None) and (g_dFiring.get(eGroup) == iHead) and IsFiring(pSystem):
+		if PhaserHeadReady(pSystem, iHead):
+			return (None, [], 0, 1)
+	lPlan = SecondaryPhaserPlan(pShip, pSystem, lTargets[0])
+	if len(lPlan) == 0:
+		return (None, [], 0, 0)
+	pHead = App.ShipClass_GetObjectByID(None, lPlan[0])
+	if not IsLive(pHead):
+		return (None, [], 0, 0)
+	g_dScore[eGroup] = 100.0	# phasers have no solution: the log shows 100
+	lIDs = lPlan[1:]
+	if g_bDebug and (g_pCore != None):
+		sSec = ""
+		for iSec in lPlan:
+			if sSec != "":
+				sSec = sSec + ","
+			sSec = sSec + str(iSec)
+		sText = "Group " + str(eGroup) + " plan: main - sec " + sSec + " head sec"
+		if g_dPlanNote.get(eGroup) != sText:
+			g_dPlanNote[eGroup] = sText
+			g_pCore.Log(NAME, sText)
+	return (pHead, lIDs, 1, 0)
+
+
+def NoteArcPlan(pShip, pSystem, eGroup, pTarget, lSec, bHeadSec):
+	# After an arc-percent plan: remembers the group's secondaries (their
+	# hysteresis keys survive ArcSettle) and, in Debug, logs the plan line when
+	# it changed.
+	global g_dArcSec, g_dPlanNote
+	lIDs = []
+	for iSec in lSec:
+		lIDs.append(iSec)
+	iHead = None
+	if pTarget != None:
+		iHead = pTarget.GetObjID()
+	if bHeadSec and (iHead != None):
+		lIDs.append(iHead)
+	g_dArcSec[eGroup] = lIDs
+	ArcSettle(pSystem, ArcKeep(eGroup, iHead))
+	if g_bDebug and (g_pCore != None):
+		sSec = ""
+		lShow = lSec
+		if bHeadSec and (iHead != None):
+			lShow = [iHead] + list(lSec)
+		for iSec in lShow:
+			if sSec != "":
+				sSec = sSec + ","
+			sSec = sSec + str(iSec)
+		if sSec == "":
+			sSec = "-"
+		sMain = "-"
+		sHead = "main"
+		if iHead != None:
+			if bHeadSec:
+				sHead = "sec"
+			else:
+				sMain = str(iHead)
+		sText = "Group " + str(eGroup) + " plan: main " + sMain + " sec " + sSec + " head " + sHead
+		if g_dPlanNote.get(eGroup) != sText:
+			g_dPlanNote[eGroup] = sText
+			g_pCore.Log(NAME, sText)
 
 
 ###############################################################################
@@ -834,22 +1180,34 @@ def PulseReady(pWeapon, pTarget):
 
 def ForgetArc():
 	# Forgets which weapons were 'ready' (PulseRule 3 hysteresis).
-	global g_dArcReady
+	global g_dArcReady, g_dArcSec
 	g_dArcReady = {}
+	g_dArcSec = {}
 
 
-def ArcAllowed(fDistance):
-	# PulseRule 3: percent of the arc (from its centre) the predicted point
-	# may use at this distance (world units): PulseArcPercentFar at
-	# PulseArcFarDistance and beyond, PulseArcPercentNear at
-	# PulseArcNearDistance and closer, linear in between (as the cone).
-	if fDistance <= g_fArcNearDistance:
-		fAllowed = g_fArcNear
-	elif fDistance >= g_fArcFarDistance:
-		fAllowed = g_fArcFar
+def ArcBand(sKind):
+	# ((far percent, near percent, far distance, near distance), hysteresis) of
+	# the arc-percent rule of this kind ("pulse" or "torpedo").
+	if sKind == "torpedo":
+		return ((g_fTorpArcFar, g_fTorpArcNear, g_fTorpArcFarDistance, g_fTorpArcNearDistance), g_fTorpArcHysteresis)
+	return ((g_fArcFar, g_fArcNear, g_fArcFarDistance, g_fArcNearDistance), g_fArcHysteresis)
+
+
+def ArcAllowed(fDistance, tBand=None):
+	# Arc percent rule: percent of the arc (from its centre) the predicted point
+	# may use at this distance (world units): the Far percent at the Far
+	# distance and beyond, the Near percent at the Near distance and closer,
+	# linear in between (as the cone). tBand = (far %, near %, far distance,
+	# near distance); None = the pulse settings (PulseArc*).
+	if tBand == None:
+		tBand = ArcBand("pulse")[0]
+	if fDistance <= tBand[3]:
+		fAllowed = tBand[1]
+	elif fDistance >= tBand[2]:
+		fAllowed = tBand[0]
 	else:
-		fShare = (fDistance - g_fArcNearDistance) / (g_fArcFarDistance - g_fArcNearDistance)
-		fAllowed = g_fArcNear + (g_fArcFar - g_fArcNear) * fShare
+		fShare = (fDistance - tBand[3]) / (tBand[2] - tBand[3])
+		fAllowed = tBand[1] + (tBand[0] - tBand[1]) * fShare
 	if fAllowed < 0.0:
 		fAllowed = 0.0
 	if fAllowed > 100.0:
@@ -887,31 +1245,71 @@ def ArcFallback(pWeapon, vPoint):
 		return 1.0
 
 
-def PulseArcScore(pShip, pSystem, pWeapon, pTarget, vOffset):
-	# PulseRule 3: 0 when the weapon should not fire at the target, else 1 to
-	# 100 (100 = predicted point at the centre of the arc). The point is the
-	# lead point Solution.Score aims at. Ready from depth*100 <= the allowed
-	# percent at that distance; once ready for this target it stays ready
-	# until depth*100 > allowed + PulseArcHysteresis (never beyond the arc).
+def WeaponReady(pWeapon, sKind):
+	# 1 when the weapon can fire now: a pulse weapon is charged enough, a
+	# torpedo tube has a torpedo loaded. Any error: 0.
+	try:
+		if sKind == "torpedo":
+			return pWeapon.GetNumReady() > 0
+		return PulseCharged(pWeapon)
+	except:
+		return 0
+
+
+def ArcDrop(iKey):
+	# Forgets the hysteresis entry of one (weapon, target) pair.
+	if (iKey != None) and g_dArcReady.has_key(iKey):
+		del g_dArcReady[iKey]
+
+
+def ArcScore(pShip, pSystem, pWeapon, pTarget, vOffset, sKind, bNeedReady, tFrame=None, tShot=None):
+	# Arc percent rule (PulseRule 3 / TorpedoRule 3): 0 when the weapon should
+	# not fire at the target, else 1 to 100 (100 = predicted point at the
+	# centre of the arc). The point is the lead point Solution.Score aims at
+	# (tShot: (point, speed, lifetime) already worked out by the caller).
+	# Ready from depth*100 <= the allowed percent at that distance; once ready
+	# for this target it stays ready until depth*100 > allowed + hysteresis
+	# (never beyond the arc). bNeedReady 1: an unready weapon scores 0 and its
+	# entry is dropped.
 	iWeapon = WeaponKey(pWeapon)
 	iTarget = pTarget.GetObjID()
 	iKey = None
 	if iWeapon != None:
 		iKey = (iWeapon, iTarget)	# per (weapon, target): scoring B never touches A's entry
-	if not PulseCharged(pWeapon):
-		if (iKey != None) and g_dArcReady.has_key(iKey):
-			del g_dArcReady[iKey]
+	if bNeedReady and (not WeaponReady(pWeapon, sKind)):
+		ArcDrop(iKey)
 		return 0.0
 	pSolution = GetSolution()
 	vPoint = None
-	try:
-		tInfo = pSolution.GetProjectileInfo(pWeapon, pSystem)
-		vPoint = pSolution.LeadPoint(pTarget, vOffset, pWeapon.GetWorldLocation(), tInfo[0])
-	except:
-		vPoint = None
+	fSpeed = 0.0
+	fLifetime = 0.0
+	if tShot != None:
+		vPoint = tShot[0]
+		fSpeed = tShot[1]
+		fLifetime = tShot[2]
+	else:
+		try:
+			if sKind == "torpedo":
+				tInfo = pSolution.GetProjectileInfo(None, pSystem)
+			else:
+				tInfo = pSolution.GetProjectileInfo(pWeapon, pSystem)
+			fSpeed = tInfo[0]
+			fLifetime = tInfo[3]
+			vPoint = pSolution.LeadPoint(pTarget, vOffset, pWeapon.GetWorldLocation(), tInfo[0])
+		except:
+			vPoint = None
 	if vPoint == None:
 		vPoint = pTarget.GetWorldLocation()
-	fDepth = pSolution.ArcDepth(pShip, pWeapon, vPoint)
+	fDepth = None
+	try:
+		if sKind == "torpedo":
+			if tFrame == None:
+				tFrame = pSolution.TubeFrame(pShip, pWeapon)
+			fDepth = pSolution.TubeDepth(tFrame, vPoint)
+		else:
+			fDepth = pSolution.ArcDepth(pShip, pWeapon, vPoint)
+	except:
+		fDepth = None
 	if fDepth == None:
 		return ArcFallback(pWeapon, vPoint)
 	fDistance = 0.0
@@ -921,9 +1319,17 @@ def PulseArcScore(pShip, pSystem, pWeapon, pTarget, vOffset):
 		fDistance = vDiff.Length()
 	except:
 		fDistance = 0.0
-	fLimit = ArcAllowed(fDistance)
+	if (sKind == "torpedo") or PULSE_ARC_LIFETIME:
+		if (fSpeed > 0.0) and (fLifetime > 0.0) and (fDistance / fSpeed > fLifetime):
+			ArcDrop(iKey)
+			return 0.0
+	tBandHys = ArcBand(sKind)
+	fLimit = ArcAllowed(fDistance, tBandHys[0])
+	# hysteresis <= 0 = off: no ready key is stored, nothing is added to the limit
+	if tBandHys[1] <= 0.0:
+		iKey = None
 	if (iKey != None) and g_dArcReady.has_key(iKey):
-		fLimit = fLimit + g_fArcHysteresis
+		fLimit = fLimit + tBandHys[1]
 	if fLimit > 100.0:
 		fLimit = 100.0
 	if fDepth * 100.0 <= fLimit:
@@ -933,22 +1339,46 @@ def PulseArcScore(pShip, pSystem, pWeapon, pTarget, vOffset):
 		if fScore < 1.0:
 			fScore = 1.0
 		return fScore
-	if (iKey != None) and g_dArcReady.has_key(iKey):
-		del g_dArcReady[iKey]
+	ArcDrop(iKey)
 	return 0.0
 
 
-def ArcSettle(pSystem, iTargetID):
-	# After the group chose its target (None: none): its weapons stay 'ready'
-	# only for that target, so a target change starts every weapon afresh.
+def PulseArcScore(pShip, pSystem, pWeapon, pTarget, vOffset):
+	# PulseRule 3 score of one pulse weapon (see ArcScore): charged weapons only.
+	return ArcScore(pShip, pSystem, pWeapon, pTarget, vOffset, "pulse", 1)
+
+
+def ArcKeep(eGroup, iTargetID):
+	# IDs whose hysteresis keys survive ArcSettle: the chosen target (if any)
+	# and the secondaries of the group's last plan.
+	lKeep = []
+	if iTargetID != None:
+		lKeep.append(iTargetID)
+	for iID in g_dArcSec.get(eGroup, []):
+		lKeep.append(iID)
+	return lKeep
+
+
+def ArcSettle(pSystem, keep):
+	# After the group chose its target: its weapons stay 'ready' only for the
+	# target IDs in keep (None = none, an ID, or a list of IDs), so a target
+	# change starts every weapon afresh. Pulse weapons and torpedo tubes.
+	if keep == None:
+		lKeep = []
+	elif type(keep) == type([]):
+		lKeep = keep
+	else:
+		lKeep = [keep]
 	for iChild in range(pSystem.GetNumChildSubsystems()):
 		pWeapon = App.PulseWeapon_Cast(pSystem.GetChildSubsystem(iChild))
+		if pWeapon == None:
+			pWeapon = App.TorpedoTube_Cast(pSystem.GetChildSubsystem(iChild))
 		if pWeapon != None:
 			iWeapon = WeaponKey(pWeapon)
 			if iWeapon == None:
 				continue
 			for tKey in g_dArcReady.keys():
-				if (tKey[0] == iWeapon) and (tKey[1] != iTargetID):
+				if (tKey[0] == iWeapon) and (not (tKey[1] in lKeep)):
 					del g_dArcReady[tKey]
 
 
@@ -991,7 +1421,7 @@ def PulseTarget(pShip, pSystem, lTargets, eGroup):
 			pBest = pTarget
 	if pBest == None:
 		if g_iPulseRule == 3:
-			ArcSettle(pSystem, None)
+			ArcSettle(pSystem, ArcKeep(eGroup, None))
 		return None
 	g_dScore[eGroup] = fBest
 	fMinimum = g_fPulseMinSolution
@@ -999,10 +1429,10 @@ def PulseTarget(pShip, pSystem, lTargets, eGroup):
 		fMinimum = 1.0	# firing cone / arc percent: any weapon inside it
 	if fBest >= fMinimum:
 		if g_iPulseRule == 3:
-			ArcSettle(pSystem, pBest.GetObjID())
+			ArcSettle(pSystem, ArcKeep(eGroup, pBest.GetObjID()))
 		return pBest
 	if g_iPulseRule == 3:
-		ArcSettle(pSystem, None)
+		ArcSettle(pSystem, ArcKeep(eGroup, None))
 	return None
 
 
@@ -1157,24 +1587,46 @@ def FireCycle():
 					pTarget = GroupTarget(pShip, pSystem, lTargets, eGroup)
 				lSec = []
 				bHeadSec = 0
-				pTorpedoes = None
+				sPlan = None
 				if pSystem != None:
-					pTorpedoes = App.TorpedoSystem_Cast(pSystem)
+					sPlan = Plannable(pSystem)
 				bPlanned = 0
-				if (pTorpedoes != None) and ((g_dFiring.get(eGroup) == None) or (not IsFiring(pSystem))):
-					# About to press (or press again) a torpedo group: plan its list.
+				if (sPlan != None) and ((g_dFiring.get(eGroup) == None) or (not IsFiring(pSystem))):
+					# About to press (or press again) a torpedo or arc-percent pulse group: plan its list.
 					bPlanned = 1
 					try:
-						tPlan = PlanTorpedoGroup(pShip, pTorpedoes, pTarget, lTargets, eGroup)
+						tPlan = PlanGroup(pShip, pSystem, pTarget, lTargets, eGroup)
 						pTarget = tPlan[0]
 						lSec = tPlan[1]
 						bHeadSec = tPlan[2]
+						if ArcRuleOn(sPlan):
+							NoteArcPlan(pShip, pSystem, eGroup, pTarget, lSec, bHeadSec)
 					except:
-						LogPlanError("Torpedo plan error: " + str(sys.exc_info()[1]))
-				if (not bPlanned) and (pTarget == None) and (pTorpedoes != None) and (g_dFiring.get(eGroup) != None) and (g_dSecHead.get(eGroup) == g_dFiring.get(eGroup)) and (not IsTapped(pSystem)):
+						LogPlanError(sPlan + " plan error: " + str(sys.exc_info()[1]))
+				bKeepHead = 0
+				iOldHead = g_dSecHead.get(eGroup)
+				bPhaser = 0
+				if (pSystem != None) and (sPlan == None) and g_iSecondaryPhasers and IsPhaserGroup(pSystem):
+					# Phaser group: no bank reaches the main target, start at a secondary a ready bank reaches.
+					bPhaser = 1
+					try:
+						tStep = PlanPhaserStep(pShip, pSystem, pTarget, lTargets, eGroup)
+						pTarget = tStep[0]
+						lSec = tStep[1]
+						bHeadSec = tStep[2]
+						bKeepHead = tStep[3]
+					except:
+						LogPlanError("phaser plan error: " + str(sys.exc_info()[1]))
+				if bKeepHead:
+					# A held phaser group started at a secondary keeps firing: no stop and start.
+					pass
+				elif (not bPlanned) and (pTarget == None) and (sPlan != None) and (g_dFiring.get(eGroup) != None) and (g_dSecHead.get(eGroup) == g_dFiring.get(eGroup)) and (not IsTapped(pSystem)):
 					# A held group started at a secondary keeps firing: its list stays.
 					pass
 				else:
+					if bPhaser and (iOldHead != None) and (g_dFiring.get(eGroup) == iOldHead) and ((pTarget == None) or (pTarget.GetObjID() != iOldHead)):
+						# Leaving a secondary head (main reachable again, or another head): restart clean.
+						FireGroup(pShip, eGroup, None, 0)
 					FireGroup(pShip, eGroup, pTarget, pTarget != None, lSec, bHeadSec)
 					if bHeadSec and (pTarget != None):
 						g_dSecHead[eGroup] = pTarget.GetObjID()
@@ -1270,10 +1722,11 @@ def Stop():
 	# Called when the battle ends, while the game is destroying the ships:
 	# nothing is asked of them (their weapons stop with them), Auto Fire
 	# only forgets what it was firing.
-	global g_iOn, g_iShipID, g_pMission, g_iFiringShipID, g_dSecHead
+	global g_iOn, g_iShipID, g_pMission, g_iFiringShipID, g_dSecHead, g_dPlanNote
 	for tEntry in GetFireEvents():
 		g_dFiring[tEntry[1]] = None
 	g_dSecHead = {}
+	g_dPlanNote = {}
 	g_iFiringShipID = None
 	ForgetSpread()
 	ForgetArc()

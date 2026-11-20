@@ -150,7 +150,8 @@ has "AutoFire" in Ships.py.
   it does not change the alert level. Holding a fire key yourself takes that weapon group over
   until you let go.
 - Phasers: fire while the target is within PhaserRange percent of their
-  full-damage range, in arc, and charged to at least PhaserMinCharge.
+  full-damage range, in arc, and charged to at least PhaserMinCharge
+  (0 = off for either check).
 - Torpedoes: the target is predicted where it will be when the torpedo
   arrives (the same prediction the game's AI uses). TorpedoRule 1 (firing
   solution): a 0 to 100 score from the tube's aim error, what the guidance
@@ -160,7 +161,14 @@ has "AutoFire" in Ships.py.
   degrees. TorpedoRule 2 (firing cone, like the game's AI): a tube fires
   when the predicted target is within ConeAngleFar degrees (at
   ConeFarDistance km and beyond), opening to ConeAngleNear (at
-  ConeNearDistance km and closer). TorpedoReserve torpedoes are kept back.
+  ConeNearDistance km and closer). TorpedoRule 3 (arc percent): a tube fires
+  when where the target will be is inside its fixed 30 degree cone by a share
+  that depends on the distance: TorpedoArcPercentFar % of the cone (from its
+  centre) at TorpedoArcFarDistance km and beyond, opening to
+  TorpedoArcPercentNear % at TorpedoArcNearDistance km and closer; once
+  firing it keeps firing until the point is TorpedoArcHysteresis points past
+  that (0 = off: ready only while inside the percent). TorpedoReserve
+  torpedoes are kept back.
 - Spread: the ship's largest spread for solutions of SpreadMinSolution or
   more and at SpreadMinDistance km or further (spread torpedoes need room
   to turn); Single otherwise. Your own spread comes back when Auto Fire is
@@ -171,20 +179,29 @@ has "AutoFire" in Ships.py.
   PulseMinSolution or more. PulseRule 2: a firing cone around where each
   weapon points, with its own settings (PulseConeAngleFar/Near,
   PulseConeFarDistance/NearDistance), usually wider than the torpedoes'.
-  PulseRule 3 (NEW, validate with the STProbe ARCFORMULA test): fires when
+  PulseRule 3: fires when
   where the target will be is inside the weapon's firing arc by a share of
   the arc that depends on the distance: PulseArcPercentFar % of the arc
   (from its centre) at PulseArcFarDistance km and beyond, opening to
   PulseArcPercentNear % at PulseArcNearDistance km and closer. Once firing
-  it keeps firing until the point is PulseArcHysteresis points past that.
+  it keeps firing until the point is PulseArcHysteresis points past that
+  (0 = off: ready only while inside the percent).
+  With Secondary Target ON it also picks the secondary targets of the free
+  weapons, and fires at a secondary alone when no weapon has a shot at the
+  main target.
 - TapFire = 1: torpedoes and pulse weapons are fired with quick presses
   (faster than holding the key); phasers are always held.
 - SecondaryTorpedoes = 1: with Secondary Target switched ON for the ship
   (torpedoes allowed), torpedo tubes that cannot reach the target fire at
-  other enemies they can reach, by themselves, with the same firing solution
-  rule and TorpedoReserve. Tubes that reach the main target keep their
+  other enemies they can reach, by themselves, with the same rule as the
+  main target (TorpedoRule) and TorpedoReserve. Tubes that reach the main target keep their
   torpedoes for it. If no tube reaches the main target, the free tubes fire
   at the best secondary, in Single. 0 = off.
+- SecondaryPhasers = 1: with Secondary Target switched ON for the ship
+  (phasers allowed), a phaser group whose banks cannot reach the main target
+  fires at a secondary target a ready bank reaches (nearest first), and goes
+  back to the main target as soon as a bank reaches it. When a bank reaches
+  the main target nothing changes. 0 = off.
 - TargetMode: 0 = your selected target only; 1 = your target, and with none
   (or after a kill) the nearest enemy becomes your target; 2 = each weapon
   group picks its own enemy (phasers the nearest they can hit, torpedoes
@@ -205,7 +222,8 @@ Only for the player's ship, and only if it has "SecondaryTarget" in Ships.py.
   stops with it: it never fires on its own and fires only at the mission's
   enemies (never at friendly or neutral ships).
 - Each cycle it looks at the nearest enemies (MaxCandidates) that are within
-  SecondaryRange percent of the phaser's full-damage range, and adds them
+  SecondaryRange percent of the phaser's full-damage range (0 = off, no
+  limit), and adds them
   after your main target in the weapon group's target list. The game then
   sends each weapon to a target it can reach, and the main target, being
   first, keeps the weapons that reach it. Pulse weapons: all of them count
@@ -241,6 +259,14 @@ Only for the player's ship, and only if it has "SecondaryTarget" in Ships.py.
   reach the target to secondary targets they can reach (see
   SecondaryTorpedoes in the Auto Fire section); tubes that reach the main
   target keep their torpedoes for it.
+- Phasers with Auto Fire: while a bank reaches the main target, this module
+  adds the secondaries as above. If no ready bank reaches the main target,
+  Auto Fire starts the group at a secondary a ready bank reaches (see
+  SecondaryPhasers in the Auto Fire section; candidates as above).
+- With PulseRule 3 / TorpedoRule 3 (Auto Fire Config) a secondary is added
+  only if a weapon that does not reach the main target has it inside the
+  allowed arc percent; with manual fire your main target is never restricted.
+  Pulse weapons under Auto Fire with PulseRule 3 are handled by Auto Fire.
 - The optional engine patches (one bank per target, log file) are described
   in "Engine patches" below. The module works without them (several banks may
   then shoot the same target, and there is no log file).
@@ -466,7 +492,7 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   hasta soltarla.
 - Phasers: disparan con el objetivo dentro de PhaserRange por ciento de su
   alcance de dano maximo, en el arco, y con carga de al menos
-  PhaserMinCharge.
+  PhaserMinCharge (0 = desactivado en ambos controles).
 - Torpedos: el objetivo se predice donde estara cuando llegue el torpedo
   (la misma prediccion de la IA del juego). TorpedoRule 1 (solucion de
   tiro): una nota de 0 a 100 a partir del error de punteria del tubo, lo
@@ -476,7 +502,14 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   grados. TorpedoRule 2 (cono de tiro, como la IA del juego): un tubo
   dispara cuando el objetivo previsto esta dentro de ConeAngleFar grados (a
   ConeFarDistance km o mas), abriendose hasta ConeAngleNear (a
-  ConeNearDistance km o menos). Se guardan TorpedoReserve torpedos.
+  ConeNearDistance km o menos). TorpedoRule 3 (porcentaje de arco): un tubo
+  dispara cuando donde estara el objetivo esta dentro de su cono fijo de 30
+  grados en una parte que depende de la distancia: TorpedoArcPercentFar % del
+  cono (desde su centro) a TorpedoArcFarDistance km o mas, abriendose a
+  TorpedoArcPercentNear % a TorpedoArcNearDistance km o menos; una vez
+  disparando, sigue hasta que el punto se pase TorpedoArcHysteresis puntos.
+  (0 = apagado: listo solo dentro del porcentaje). Se guardan
+  TorpedoReserve torpedos.
 - Spread: el mayor spread de la nave para soluciones de SpreadMinSolution o
   mas y a SpreadMinDistance km o mas (los torpedos en spread necesitan
   espacio para girar); Single en otro caso. Su propio spread vuelve al
@@ -488,20 +521,29 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   apunta cada arma, con su propia configuracion (PulseConeAngleFar/Near,
   PulseConeFarDistance/NearDistance), normalmente mas ancho que el de los
   torpedos.
-  PulseRule 3 (NUEVO, validar con la prueba ARCFORMULA de STProbe): dispara
+  PulseRule 3: dispara
   cuando donde estara el objetivo esta dentro del arco de tiro del arma en
   una parte del arco que depende de la distancia: PulseArcPercentFar % del
   arco (desde su centro) a PulseArcFarDistance km o mas, abriendose a
   PulseArcPercentNear % a PulseArcNearDistance km o menos. Una vez
-  disparando, sigue hasta que el punto se pase PulseArcHysteresis puntos.
+  disparando, sigue hasta que el punto se pase PulseArcHysteresis puntos
+  (0 = apagado: listo solo dentro del porcentaje).
+  Con el Secondary Target ENCENDIDO tambien elige los objetivos secundarios
+  de las armas libres, y dispara a un secundario solo cuando ningun arma
+  tiene tiro al objetivo principal.
 - TapFire = 1: torpedos y armas de pulso se disparan con toques rapidos
   (mas rapido que mantener la tecla); los phasers siempre se mantienen.
 - SecondaryTorpedoes = 1: con el Secondary Target ENCENDIDO en la nave
   (torpedos permitidos), los tubos de torpedo que no alcanzan el objetivo
-  disparan solos a otros enemigos que si alcanzan, con la misma regla de
-  solucion de tiro y el TorpedoReserve. Los tubos que alcanzan el objetivo
+  disparan solos a otros enemigos que si alcanzan, con la misma regla del
+  objetivo principal (TorpedoRule) y el TorpedoReserve. Los tubos que alcanzan el objetivo
   principal guardan los torpedos para el. Si ninguno lo alcanza, los tubos
   libres disparan al mejor secundario, en Single. 0 = apagado.
+- SecondaryPhasers = 1: con el Secondary Target ENCENDIDO en la nave
+  (phasers permitidos), un grupo de phasers cuyos bancos no alcanzan el
+  objetivo principal dispara a un objetivo secundario que un banco listo
+  alcanza (el mas cercano primero), y vuelve al principal en cuanto un banco
+  lo alcanza. Si un banco alcanza el principal, nada cambia. 0 = apagado.
 - TargetMode: 0 = solo su objetivo seleccionado; 1 = su objetivo, y sin
   ninguno (o tras una baja) el enemigo mas cercano pasa a ser su objetivo;
   2 = cada grupo de armas elige su enemigo (phasers el mas cercano que
@@ -524,7 +566,8 @@ las armas que lo alcanzan. Solo para la nave del jugador, y solo si tiene
   su cuenta y solo dispara a los enemigos de la mision (nunca a naves
   aliadas o neutrales).
 - En cada ciclo mira los enemigos mas cercanos (MaxCandidates) que esten
-  dentro de SecondaryRange por ciento del alcance de dano maximo del phaser,
+  dentro de SecondaryRange por ciento del alcance de dano maximo del phaser
+  (0 = desactivado, sin limite),
   y los agrega despues de su objetivo principal en la lista de objetivos del
   grupo. El juego envia cada arma a un objetivo que alcanza, y el principal,
   por ir primero, conserva las armas que lo alcanzan. Armas de pulso: todas
@@ -562,6 +605,15 @@ las armas que lo alcanzan. Solo para la nave del jugador, y solo si tiene
   alcanzan el objetivo a objetivos secundarios que si alcanzan (vea
   SecondaryTorpedoes en la seccion del Auto Fire); los tubos que alcanzan
   el objetivo principal guardan los torpedos para el.
+- Phasers con Auto Fire: mientras un banco alcanza el objetivo principal, este
+  modulo anade los secundarios como arriba. Si ningun banco listo alcanza el
+  principal, el Auto Fire inicia el grupo en un secundario que un banco listo
+  alcanza (vea SecondaryPhasers en la seccion del Auto Fire).
+- Con PulseRule 3 / TorpedoRule 3 (Config del Auto Fire) un secundario solo
+  se agrega si un arma que no alcanza el objetivo principal lo tiene dentro
+  del porcentaje de arco permitido; con disparo manual su objetivo principal
+  nunca se restringe. Las armas de pulso bajo Auto Fire con PulseRule 3 las
+  maneja el Auto Fire.
 - Los parches opcionales del motor (un banco por objetivo, archivo de log) se
   describen en "Parches del motor" mas abajo. El modulo funciona sin ellos
   (varios bancos pueden disparar al mismo objetivo, y no hay archivo de log).
@@ -785,7 +837,8 @@ tiver "AutoFire" no Ships.py.
   nivel de alerta. Segurar uma tecla de disparo assume aquele grupo de armas ate
   voce soltar.
 - Phasers: disparam com o alvo dentro de PhaserRange por cento do alcance de
-  dano maximo, no arco, e com carga de pelo menos PhaserMinCharge.
+  dano maximo, no arco, e com carga de pelo menos PhaserMinCharge
+  (0 = desligado em ambos os controles).
 - Torpedos: o alvo e previsto onde estara quando o torpedo chegar (a mesma
   previsao da IA do jogo). TorpedoRule 1 (solucao de tiro): uma nota de 0 a
   100 a partir do erro de mira do tubo, do que o guiamento consegue
@@ -794,8 +847,15 @@ tiver "AutoFire" no Ships.py.
   TorpedoMinSolution ou mais, e nunca a mais de TubeMaxAngle graus.
   TorpedoRule 2 (cone de tiro, como a IA do jogo): um tubo dispara quando o
   alvo previsto esta dentro de ConeAngleFar graus (a ConeFarDistance km ou
-  mais), abrindo ate ConeAngleNear (a ConeNearDistance km ou menos). Ficam
-  guardados TorpedoReserve torpedos.
+  mais), abrindo ate ConeAngleNear (a ConeNearDistance km ou menos).
+  TorpedoRule 3 (porcentagem do arco): um tubo dispara quando onde o alvo vai
+  estar fica dentro do cone fixo de 30 graus dele numa parte que depende da
+  distancia: TorpedoArcPercentFar % do cone (a partir do centro) a
+  TorpedoArcFarDistance km ou mais, abrindo para TorpedoArcPercentNear % a
+  TorpedoArcNearDistance km ou menos; depois de comecar a disparar, continua
+  ate o ponto passar TorpedoArcHysteresis pontos (0 = desligado: pronto
+  so dentro da porcentagem). Ficam guardados
+  TorpedoReserve torpedos.
 - Spread: o maior spread da nave para solucoes de SpreadMinSolution ou mais
   e a SpreadMinDistance km ou mais (torpedos em spread precisam de espaco
   para virar); Single nos outros casos. O seu spread volta ao desligar o
@@ -807,20 +867,29 @@ tiver "AutoFire" no Ships.py.
   com ajustes proprios (PulseConeAngleFar/Near,
   PulseConeFarDistance/NearDistance), normalmente mais largo que o dos
   torpedos.
-  PulseRule 3 (NOVO, validar com o teste ARCFORMULA do STProbe): dispara
+  PulseRule 3: dispara
   quando onde o alvo vai estar fica dentro do arco de tiro da arma numa
   parte do arco que depende da distancia: PulseArcPercentFar % do arco (a
   partir do centro) a PulseArcFarDistance km ou mais, abrindo para
   PulseArcPercentNear % a PulseArcNearDistance km ou menos. Depois de
-  comecar a disparar, continua ate o ponto passar PulseArcHysteresis pontos.
+  comecar a disparar, continua ate o ponto passar PulseArcHysteresis pontos
+  (0 = desligado: pronto so dentro da porcentagem).
+  Com o Secondary Target LIGADO tambem escolhe os alvos secundarios das armas
+  livres, e atira em um secundario sozinho quando nenhuma arma tem tiro no
+  alvo principal.
 - TapFire = 1: torpedos e armas de pulso sao disparados com toques rapidos
   (mais rapido que segurar a tecla); os phasers sao sempre segurados.
 - SecondaryTorpedoes = 1: com o Secondary Target LIGADO na nave (torpedos
   permitidos), os tubos de torpedo que nao alcancam o alvo disparam, por
-  conta propria, contra outros inimigos que alcancam, com a mesma regra de
-  solucao de tiro e o TorpedoReserve. Os tubos que alcancam o alvo principal
+  conta propria, contra outros inimigos que alcancam, com a mesma regra do
+  alvo principal (TorpedoRule) e o TorpedoReserve. Os tubos que alcancam o alvo principal
   guardam os torpedos para ele. Se nenhum tubo o alcanca, os tubos livres
   atiram no melhor secundario, em Single. 0 = desligado.
+- SecondaryPhasers = 1: com o Secondary Target LIGADO na nave (phasers
+  permitidos), um grupo de phasers cujos bancos nao alcancam o alvo principal
+  atira em um alvo secundario que um banco pronto alcanca (o mais proximo
+  primeiro), e volta ao principal assim que um banco o alcanca. Se um banco
+  alcanca o principal, nada muda. 0 = desligado.
 - TargetMode: 0 = so o alvo que voce selecionou; 1 = o seu alvo, e sem
   nenhum (ou depois de um abate) o inimigo mais proximo vira o seu alvo;
   2 = cada grupo de armas escolhe o proprio inimigo (phasers o mais
@@ -842,7 +911,8 @@ que o alcancam. So para a nave do jogador, e so se ela tiver
   a tecla, o modulo para junto: nunca dispara sozinho e so atira nos inimigos
   da missao (nunca em naves aliadas ou neutras).
 - A cada ciclo olha os inimigos mais proximos (MaxCandidates) que estejam
-  dentro de SecondaryRange por cento do alcance de dano maximo do phaser, e
+  dentro de SecondaryRange por cento do alcance de dano maximo do phaser
+  (0 = desligado, sem limite), e
   os coloca depois do alvo principal na lista de alvos do grupo. O jogo manda
   cada arma para um alvo que ela alcanca, e o principal, por ser o primeiro,
   fica com as armas que o alcancam. Armas de pulso: todas contam como livres,
@@ -878,6 +948,15 @@ que o alcancam. So para a nave do jogador, e so se ela tiver
   alcancam o alvo para alvos secundarios que eles alcancam (veja
   SecondaryTorpedoes na secao do Auto Fire); os tubos que alcancam o alvo
   principal guardam os torpedos para ele.
+- Phasers com Auto Fire: enquanto um banco alcanca o alvo principal, este
+  modulo adiciona os secundarios como acima. Se nenhum banco pronto alcanca o
+  principal, o Auto Fire inicia o grupo em um secundario que um banco pronto
+  alcanca (veja SecondaryPhasers na secao do Auto Fire).
+- Com PulseRule 3 / TorpedoRule 3 (Config do Auto Fire) um secundario so e
+  adicionado se uma arma que nao alcanca o alvo principal o tem dentro da
+  porcentagem de arco permitida; com disparo manual o seu alvo principal
+  nunca e restringido. As armas de pulso sob Auto Fire com PulseRule 3 sao
+  tratadas pelo Auto Fire.
 - Os patches opcionais do motor (um banco por alvo, arquivo de log) estao
   descritos em "Patches do motor" abaixo. O modulo funciona sem eles (varios
   bancos podem atirar no mesmo alvo, e nao ha arquivo de log).

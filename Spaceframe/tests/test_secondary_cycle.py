@@ -1209,6 +1209,155 @@ def test_maintain_torpedo_group_owned_by_autofire_is_left_alone():
 	assert pSys.ids() == [2, 4]
 
 
+# --- arc-percent rule (pulse and torpedo): candidates, filter, hand-off ------------
+def pulse_scene(core, ship, iEgroup=1):
+	"""Main at x=10 (ahead), B at x=20 (ahead), C at x=-20 (behind). One fore and one
+	aft pulse weapon (geometric arcs) in the pulse group."""
+	main = enemy("Main", 2, 10.0)
+	b = enemy("B", 3, 20.0)
+	c = enemy("C", 4, -20.0)
+	core.g_pMission = mock_app.Mission([main, b, c])
+	ship.target = main
+	wFore = mock_app.Pulse(5.0, 2.0, "box")
+	wAft = mock_app.Pulse(5.0, 2.0, "box")
+	wAft.axes = (mock_app.Point(-1.0, 0.0, 0.0), mock_app.Point(0.0, 1.0, 0.0), mock_app.Point(0.0, 0.0, 1.0))
+	pSys = ListGroup([wFore, wAft], "gu", 1)
+	ship.groups[iEgroup] = pSys
+	return main, b, c, pSys
+
+
+def arc_rule(ST, sKind, fnReaches=None):
+	"""Makes Auto Fire (the real module object) report the arc-percent rule on for sKind."""
+	AF = ST.GetAutoFire()
+	AF.ArcRuleOn = lambda s: s == sKind
+	if fnReaches == None:
+		fnReaches = lambda pShip, pSys, pWeapon, pCand, s: 1
+	AF.ArcReaches = fnReaches
+	return AF
+
+
+def test_pulse_candidates_nearest_first_no_range_limit():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = pulse_scene(core, ship)
+	c.pos = mock_app.Point(-5000.0, 0.0, 0.0)	# far away: pulse has no range filter
+	assert ST.PulseCandidates(ship, pSys, main) == [3, 4]
+
+
+def test_pulse_candidates_empty_when_not_allowed():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = pulse_scene(core, ship)
+	ST.g_iOn = 0
+	assert ST.PulseCandidates(ship, pSys, main) == []
+	ST.g_iOn = 1
+	core.techs["Galaxy"] = {"SecondaryTarget": 3}	# no pulse bit
+	assert ST.PulseCandidates(ship, pSys, main) == []
+	core.techs["Galaxy"] = {"SecondaryTarget": 4}
+	assert ST.PulseCandidates(ship, pSys, main) == [3, 4]
+	assert ST.TorpedoCandidates(ship, pSys, main) == []	# torpedo needs bit 2
+	other = mock_app.Ship("Galaxy", 50)
+	assert ST.PulseCandidates(other, pSys, main) == []
+	friend = enemy("Friend", 60, 5.0)
+	assert ST.PulseCandidates(ship, pSys, friend) == []
+	assert ST.PulseCandidates(ship, pSys, None) == []
+
+
+def test_pulse_all_free_without_the_arc_rule():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = pulse_scene(core, ship)
+	assert ST.FreeWeapons(pSys, main, "pulse") == pSys.lChildren
+	assert ST.WantedTargets(ship, pSys, main, "pulse") == [3, 4]
+	arc_rule(ST, "torpedo")	# the rule is on for the other kind only
+	assert ST.WantedTargets(ship, pSys, main, "pulse") == [3, 4]
+
+
+def test_pulse_arc_rule_free_weapons_are_those_not_reaching_main():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = pulse_scene(core, ship)
+	arc_rule(ST, "pulse")
+	assert ST.FreeWeapons(pSys, main, "pulse") == [pSys.lChildren[1]]
+	# a failing IsInArc counts as reaching the main target: not free
+	pSys.lChildren[1].iArc = "raise"
+	assert ST.FreeWeapons(pSys, main, "pulse") == []
+
+
+def test_pulse_arc_rule_wanted_needs_reach_and_arc_percent():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = pulse_scene(core, ship)
+	arc_rule(ST, "pulse")
+	assert ST.WantedTargets(ship, pSys, main, "pulse") == [4]	# B is not in the aft arc
+	arc_rule(ST, "pulse", lambda pShip, pSys_, pWeapon, pCand, s: 0)
+	assert ST.WantedTargets(ship, pSys, main, "pulse") == []
+	# ArcReaches is asked with the kind and the candidate
+	lAsked = []
+	arc_rule(ST, "pulse", lambda pShip, pSys_, pWeapon, pCand, s: lAsked.append((pCand.GetObjID(), s)) or 1)
+	ST.WantedTargets(ship, pSys, main, "pulse")
+	assert lAsked == [(4, "pulse")]
+
+
+def test_pulse_arc_rule_debug_skip_line_on_change_only():
+	App, ST, core, ship = setup(Debug=1)
+	main, b, c, pSys = pulse_scene(core, ship)
+	arc_rule(ST, "pulse", lambda pShip, pSys_, pWeapon, pCand, s: 0)
+	ST.WantedTargets(ship, pSys, main, "pulse")
+	ST.WantedTargets(ship, pSys, main, "pulse")
+	assert [s for s in ST.g_lTrace if "ARC-SKIP pulse 4" in s] != []
+	assert len([t for t in core.logs if "ARC-SKIP pulse 4" in t[1]]) == 1
+	arc_rule(ST, "pulse")
+	ST.WantedTargets(ship, pSys, main, "pulse")
+	assert len([t for t in core.logs if "ARC-SKIP pulse none" in t[1]]) == 1
+
+
+def test_arc_rule_off_when_autofire_lacks_the_functions():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = pulse_scene(core, ship)
+	AF = ST.GetAutoFire()
+	AF.ArcRuleOn = lambda s: 1
+	del AF.ArcReaches
+	assert ST.ArcRule("pulse") == 0
+	assert ST.WantedTargets(ship, pSys, main, "pulse") == [3, 4]
+
+
+def test_torpedo_arc_rule_wanted_and_nosec():
+	ST, ship, pSys, CLOCK, main = rearm_scene()
+	assert ST.WantedTargets(ship, pSys, main, "torpedo") == [4]
+	assert ST.RearmReason(ship, pSys, main, 2, (ship.GetObjID(), 2))[0] == ""
+	arc_rule(ST, "torpedo", lambda pShip, pSys_, pWeapon, pCand, s: 0)
+	assert ST.WantedTargets(ship, pSys, main, "torpedo") == []
+	assert ST.RearmReason(ship, pSys, main, 2, (ship.GetObjID(), 2))[0] == "nosec"
+	arc_rule(ST, "torpedo")
+	assert ST.WantedTargets(ship, pSys, main, "torpedo") == [4]
+	assert ST.RearmReason(ship, pSys, main, 2, (ship.GetObjID(), 2))[0] == ""
+
+
+def test_maintain_pulse_group_owned_by_autofire_is_left_alone():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = pulse_scene(core, ship)
+	AF = ST.GetAutoFire()
+	AF.ManagesPulseSecondaries = lambda eGroup: 1
+	ST.g_dAdded[(1, 1)] = [4]
+	pSys.Press(main)
+	ST.Cycle()
+	assert calls("start") == [] and calls("stopat") == []
+	assert pSys.ids() == [2]
+	assert (1, 1) not in ST.g_dAdded
+	# Auto Fire hands the group back: the old path adds the secondaries again
+	AF.ManagesPulseSecondaries = lambda eGroup: 0
+	ST.Cycle()
+	assert pSys.ids() == [2, 3, 4]
+
+
+def test_maintain_pulse_group_without_the_autofire_function_is_not_owned():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = pulse_scene(core, ship)
+	AF = ST.GetAutoFire()
+	if hasattr(AF, "ManagesPulseSecondaries"):
+		del AF.ManagesPulseSecondaries
+	assert ST.AutoFireOwns(1, "pulse") == 0
+	pSys.Press(main)
+	ST.Cycle()
+	assert pSys.ids() == [2, 3, 4]
+
+
 def run():
 	failed = 0
 	names = [n for n in sorted(globals()) if n.startswith("test_")]

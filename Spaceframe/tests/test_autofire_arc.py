@@ -199,6 +199,25 @@ def test_hysteresis_holds_then_releases():
 	assert score(AF, ship, pulse, w, target) > 0.0
 
 
+def test_hysteresis_zero_is_off():
+	for iHys in (0, -5):
+		App, AF, core, ship, target, pulse, S = rule3(PulseArcHysteresis=iHys)
+		w = pulse.lChildren[0]
+		place(target, 0.45, 40.0)
+		assert score(AF, ship, pulse, w, target) > 0.0
+		assert AF.g_dArcReady == {}
+		place(target, 0.51, 40.0)	# 1 point past the allowed 50
+		assert score(AF, ship, pulse, w, target) == 0.0
+		assert AF.g_dArcReady == {}
+	App, AF, core, ship, target, pulse, S = rule3(PulseArcHysteresis=10)
+	w = pulse.lChildren[0]
+	place(target, 0.45, 40.0)
+	assert score(AF, ship, pulse, w, target) > 0.0
+	place(target, 0.51, 40.0)
+	assert score(AF, ship, pulse, w, target) > 0.0	# held with 10
+	assert len(AF.g_dArcReady) == 1
+
+
 def test_hysteresis_never_beyond_the_arc():
 	App, AF, core, ship, target, pulse, S = rule3(PulseArcPercentNear=95, PulseArcPercentFar=95, PulseArcHysteresis=20)
 	w = pulse.lChildren[0]

@@ -29,9 +29,11 @@ TargetMode = 1
 # Phasers fire when the target is within this percentage of their maximum
 # damage range (100 = the range of full damage; beyond it they still hit,
 # with less damage).
-PhaserRange = 500
+# 0 = off (no range check: they fire whenever a bank's arc reaches the target).
+PhaserRange = 0
 
 # Phasers fire only when charged at least this much (percent).
+# 0 = off (no charge check).
 PhaserMinCharge = 0
 
 # Minimum firing solution (percent) to launch a torpedo.
@@ -46,18 +48,23 @@ TapFire = 1
 #   1 = firing solution (below): predicted miss against the target's size;
 #   2 = firing cone, like the game's own AI: a tube fires when where the
 #       target will be is within an angle of where the tube points. The
-#       angle opens as the target gets closer (settings below).
-TorpedoRule = 2
+#       angle opens as the target gets closer (settings below);
+#   3 = arc percent: a tube fires when where the target will be is inside its
+#       fixed 30 degree cone by a percentage that depends on the distance
+#       (TorpedoArc* settings below); TorpedoMinSolution is not used in this
+#       rule.
+TorpedoRule = 3
 
 # The same choice for pulse weapons (disruptors, pulse cannons):
 #   1 = firing solution: they aim themselves inside their arc, so only the
 #       flight counts (target evasion, projectile lifetime, target size);
 #   2 = firing cone around where each weapon points (pulse cone settings
 #       below); PulseMinSolution is not used in this rule;
-#   3 = arc percent (NEW, validate with the STProbe ARCFORMULA test): a
-#       weapon fires when where the target will be is inside its firing
-#       arc by a percentage that depends on the distance (PulseArc*
-#       settings below); PulseMinSolution is not used in this rule.
+#   3 = arc percent: a weapon fires when where the target will be is inside
+#       its firing arc by a percentage that depends on the distance
+#       (PulseArc* settings below); PulseMinSolution is not used in this rule.
+#       With Secondary Target ON, also chooses the secondary targets (Auto
+#       Fire and manual).
 PulseRule = 3
 
 # Torpedo firing cone (TorpedoRule 2): ConeAngleFar degrees at
@@ -87,11 +94,23 @@ PulseConeNearDistance = 5
 # Distances as shown in game. Once firing, it keeps firing until the point
 # is more than PulseArcHysteresis percentage points past that limit (never
 # beyond the edge of the arc), so it does not flicker at the border.
-PulseArcPercentFar = 70
+# PulseArcHysteresis 0 = off: a weapon is ready only while inside the allowed
+# percent, no stickiness.
+PulseArcPercentFar = 50
 PulseArcPercentNear = 90
 PulseArcFarDistance = 30
 PulseArcNearDistance = 5
-PulseArcHysteresis = 5
+PulseArcHysteresis = 0
+
+# Torpedo arc percent (TorpedoRule 3), the same idea on the tube's fixed 30
+# degree cone (0 = centre, 100 = its edge, on both axes). With Secondary
+# Target ON it also decides which secondary targets a tube may take (Auto
+# Fire and manual fire).
+TorpedoArcPercentFar = 50	# percent 0-100, at TorpedoArcFarDistance km and beyond
+TorpedoArcPercentNear = 90	# percent 0-100, at TorpedoArcNearDistance km and closer
+TorpedoArcFarDistance = 30	# km as shown in game
+TorpedoArcNearDistance = 5	# km as shown in game
+TorpedoArcHysteresis = 0	# percentage points; 0 = off: a tube is ready only while inside the allowed percent, no stickiness
 
 # --- Firing solution (torpedoes and pulse weapons) -----------------------
 # For each loaded tube, Auto Fire predicts where the target will be when
@@ -144,5 +163,13 @@ TorpedoReserve = 0
 
 # 1 = with Secondary Target switched ON for this ship (torpedoes allowed there),
 # torpedo tubes that cannot reach the target fire at secondary targets they can
-# reach (same firing solution rule as above). 0 = off.
+# reach (same rule as the main target, TorpedoRule). 0 = off.
 SecondaryTorpedoes = 1
+
+# 1 = with Secondary Target switched ON for this ship (phasers allowed there),
+# a phaser group whose banks cannot reach the main target (no ready bank can
+# hit it) starts at the first secondary target a ready bank can reach, and goes
+# back to the main target as soon as a bank can hit it. When a bank reaches
+# the main target nothing changes (Secondary Target adds the secondaries while
+# the group fires). 0 = off.
+SecondaryPhasers = 1

@@ -392,6 +392,43 @@ def test_ship_leaving_and_returning_internal_mode_refills_armor():
 	assert AA.g_dShips[1][AA.REC_ARMOR] == 500.0
 
 
+def test_typeerror_disables_subsystem_creation_after_first_log():
+	App, AA, core, ship = setup(iCreate=1)
+	lCalls = []
+
+	def bad_create(pProp):
+		lCalls.append(1)
+		raise TypeError("HullClass_Create requires exactly 0 arguments; 1 given")
+	App.HullClass_Create = bad_create
+	assert AA.g_iNoSubsystem == 0
+	assert AA.CreateArmorSubsystem(ship, 500.0, 2.0) == None
+	assert AA.g_iNoSubsystem == 1
+	assert len(lCalls) == 1
+	iLogs = len([t for t in core.logs if "Subsystem creation failed" in t[1]])
+	assert iLogs == 1
+	nAll = len(core.logs)
+	ship2 = fake_ships.FakeShip("Galaxy", 2, 1000.0, [("Phasers", 100.0)])
+	assert AA.CreateArmorSubsystem(ship2, 500.0, 2.0) == None
+	assert len(lCalls) == 1
+	assert len(core.logs) == nAll
+	AA.Start(core)
+	assert AA.g_iNoSubsystem == 0
+
+
+def test_other_exception_keeps_per_ship_attempts():
+	App, AA, core, ship = setup(iCreate=1)
+	lCalls = []
+
+	def bad_create(pProp):
+		lCalls.append(1)
+		raise ValueError("boom")
+	App.HullClass_Create = bad_create
+	AA.CreateArmorSubsystem(ship, 500.0, 2.0)
+	AA.CreateArmorSubsystem(ship, 500.0, 2.0)
+	assert AA.g_iNoSubsystem == 0
+	assert len(lCalls) == 2
+
+
 def test_weaponhit_ignores_non_hull_hits():
 	App, AA, core, ship = setup()
 	rec = AA.GetRecord(ship)

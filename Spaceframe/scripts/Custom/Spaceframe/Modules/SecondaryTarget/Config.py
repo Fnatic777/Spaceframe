@@ -30,7 +30,8 @@ MaxCandidates = 4
 
 # An enemy becomes a secondary target when it is within this percentage of
 # the phaser's maximum damage range (100 = the range of full damage).
-SecondaryRange = 100
+# 0 = off (no distance limit for phasers).
+SecondaryRange = 0
 
 # An enemy becomes a secondary target for the torpedoes when it is within
 # this distance of your ship, in km as the game shows it (0 = no limit).

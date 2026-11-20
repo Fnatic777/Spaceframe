@@ -138,6 +138,20 @@ def test_phaser_range_filter():
 	assert ids(ST.GetCandidates(ship, main, pSys, "phaser")) == [3]
 
 
+def test_phaser_range_zero_means_no_limit():
+	App, ST, AF, core, ship = setup(SecondaryRange=0)
+	ST.LoadConfig()
+	main = enemy("Main", 2, 5.0)
+	far = enemy("Far", 3, 5000.0)
+	core.g_pMission = mock_app.Mission([main, far])
+	pSys = group([ReachBank([], 100.0)])
+	assert ids(ST.GetCandidates(ship, main, pSys, "phaser")) == [3]
+	# a positive value still filters
+	sys.modules[PKG + ".Config"].SecondaryRange = 100
+	ST.LoadConfig()
+	assert ST.GetCandidates(ship, main, pSys, "phaser") == []
+
+
 def test_weapon_reaching_main_is_not_free():
 	App, ST, AF, core, ship = setup()
 	main = enemy("Main", 2, 10.0)
