@@ -1162,6 +1162,53 @@ def test_fired_handler_logs_only_with_debug_and_chains():
 			assert lFired == []
 
 
+def test_torpedo_candidates_nearest_first_in_range():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = torp_scene(core, ship)
+	c.pos = mock_app.Point(-25.0, 0.0, 0.0)
+	assert ST.TorpedoCandidates(ship, pSys, main) == [3, 4]
+	# beyond SecondaryTorpedoRange (30 km = 171 units): left out
+	c.pos = mock_app.Point(-500.0, 0.0, 0.0)
+	assert ST.TorpedoCandidates(ship, pSys, main) == [3]
+
+
+def test_torpedo_candidates_empty_when_not_allowed():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = torp_scene(core, ship)
+	ST.g_iOn = 0
+	assert ST.TorpedoCandidates(ship, pSys, main) == []
+	ST.g_iOn = 1
+	# no torpedo bit (phasers + pulse only)
+	core.techs["Galaxy"] = {"SecondaryTarget": 5}
+	assert ST.TorpedoCandidates(ship, pSys, main) == []
+	core.techs["Galaxy"] = {"SecondaryTarget": -1}
+	assert ST.TorpedoCandidates(ship, pSys, main) == [3, 4]
+	# not the player's ship
+	other = mock_app.Ship("Galaxy", 50)
+	assert ST.TorpedoCandidates(other, pSys, main) == []
+	# main target is not an enemy
+	friend = enemy("Friend", 60, 5.0)
+	assert ST.TorpedoCandidates(ship, pSys, friend) == []
+	assert ST.TorpedoCandidates(ship, pSys, None) == []
+
+
+def test_maintain_torpedo_group_owned_by_autofire_is_left_alone():
+	App, ST, core, ship = setup()
+	main, b, c, pSys = torp_scene(core, ship)
+	AF = ST.GetAutoFire()
+	AF.ManagesTorpedoSecondaries = lambda eGroup: 1
+	ST.g_dAdded[(1, 2)] = [4]
+	pSys.Press(main)
+	ST.Cycle()
+	assert calls("start") == [] and calls("stopat") == []
+	assert pSys.ids() == [2]
+	assert (1, 2) not in ST.g_dAdded
+	# AutoFire hands the group back (manual key): the old path adds secondaries
+	AF.ManagesTorpedoSecondaries = lambda eGroup: 0
+	ST.Cycle()
+	assert pSys.ids() == [2, 4]
+
+
 def run():
 	failed = 0
 	names = [n for n in sorted(globals()) if n.startswith("test_")]

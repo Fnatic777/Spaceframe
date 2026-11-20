@@ -179,6 +179,12 @@ has "AutoFire" in Ships.py.
   it keeps firing until the point is PulseArcHysteresis points past that.
 - TapFire = 1: torpedoes and pulse weapons are fired with quick presses
   (faster than holding the key); phasers are always held.
+- SecondaryTorpedoes = 1: with Secondary Target switched ON for the ship
+  (torpedoes allowed), torpedo tubes that cannot reach the target fire at
+  other enemies they can reach, by themselves, with the same firing solution
+  rule and TorpedoReserve. Tubes that reach the main target keep their
+  torpedoes for it. If no tube reaches the main target, the free tubes fire
+  at the best secondary, in Single. 0 = off.
 - TargetMode: 0 = your selected target only; 1 = your target, and with none
   (or after a kill) the nearest enemy becomes your target; 2 = each weapon
   group picks its own enemy (phasers the nearest they can hit, torpedoes
@@ -231,10 +237,10 @@ Only for the player's ship, and only if it has "SecondaryTarget" in Ships.py.
   7 forward tubes at the main target, then the 7 aft tubes at a secondary).
   Safety limits: at most 20 re-arms or 20 s per key press, only while the main
   target stays the same; every release of the key clears it.
-- Auto Fire spreads phasers and pulse weapons over the secondary targets, but
-  it does NOT send torpedoes to secondary targets: it fires whole volleys at
-  the main target of the moment (not implemented yet). For torpedoes at
-  secondary targets, fire by hand.
+- Torpedoes with Auto Fire: Auto Fire itself sends the tubes that cannot
+  reach the target to secondary targets they can reach (see
+  SecondaryTorpedoes in the Auto Fire section); tubes that reach the main
+  target keep their torpedoes for it.
 - The optional engine patches (one bank per target, log file) are described
   in "Engine patches" below. The module works without them (several banks may
   then shoot the same target, and there is no log file).
@@ -490,6 +496,12 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   disparando, sigue hasta que el punto se pase PulseArcHysteresis puntos.
 - TapFire = 1: torpedos y armas de pulso se disparan con toques rapidos
   (mas rapido que mantener la tecla); los phasers siempre se mantienen.
+- SecondaryTorpedoes = 1: con el Secondary Target ENCENDIDO en la nave
+  (torpedos permitidos), los tubos de torpedo que no alcanzan el objetivo
+  disparan solos a otros enemigos que si alcanzan, con la misma regla de
+  solucion de tiro y el TorpedoReserve. Los tubos que alcanzan el objetivo
+  principal guardan los torpedos para el. Si ninguno lo alcanza, los tubos
+  libres disparan al mejor secundario, en Single. 0 = apagado.
 - TargetMode: 0 = solo su objetivo seleccionado; 1 = su objetivo, y sin
   ninguno (o tras una baja) el enemigo mas cercano pasa a ser su objetivo;
   2 = cada grupo de armas elige su enemigo (phasers el mas cercano que
@@ -546,10 +558,10 @@ las armas que lo alcanzan. Solo para la nave del jugador, y solo si tiene
   proa al principal y despues los 7 de popa a un secundario). Limites de
   seguridad: como maximo 20 rearmados o 20 s por pulsacion, solo mientras el
   objetivo principal sea el mismo; cada vez que suelta la tecla se limpia.
-- El Auto Fire reparte phasers y armas de pulso entre los objetivos
-  secundarios, pero NO manda torpedos a objetivos secundarios: dispara
-  salvas completas al objetivo principal del momento (aun no implementado).
-  Para torpedos a objetivos secundarios, dispare a mano.
+- Torpedos con Auto Fire: el propio Auto Fire manda los tubos que no
+  alcanzan el objetivo a objetivos secundarios que si alcanzan (vea
+  SecondaryTorpedoes en la seccion del Auto Fire); los tubos que alcanzan
+  el objetivo principal guardan los torpedos para el.
 - Los parches opcionales del motor (un banco por objetivo, archivo de log) se
   describen en "Parches del motor" mas abajo. El modulo funciona sin ellos
   (varios bancos pueden disparar al mismo objetivo, y no hay archivo de log).
@@ -803,6 +815,12 @@ tiver "AutoFire" no Ships.py.
   comecar a disparar, continua ate o ponto passar PulseArcHysteresis pontos.
 - TapFire = 1: torpedos e armas de pulso sao disparados com toques rapidos
   (mais rapido que segurar a tecla); os phasers sao sempre segurados.
+- SecondaryTorpedoes = 1: com o Secondary Target LIGADO na nave (torpedos
+  permitidos), os tubos de torpedo que nao alcancam o alvo disparam, por
+  conta propria, contra outros inimigos que alcancam, com a mesma regra de
+  solucao de tiro e o TorpedoReserve. Os tubos que alcancam o alvo principal
+  guardam os torpedos para ele. Se nenhum tubo o alcanca, os tubos livres
+  atiram no melhor secundario, em Single. 0 = desligado.
 - TargetMode: 0 = so o alvo que voce selecionou; 1 = o seu alvo, e sem
   nenhum (ou depois de um abate) o inimigo mais proximo vira o seu alvo;
   2 = cada grupo de armas escolhe o proprio inimigo (phasers o mais
@@ -856,10 +874,10 @@ que o alcancam. So para a nave do jogador, e so se ela tiver
   secundario). Limites de seguranca: no maximo 20 rearmes ou 20 s por
   pressionamento, so enquanto o alvo principal for o mesmo; toda vez que solta
   a tecla isso e limpo.
-- O Auto Fire distribui phasers e armas de pulso entre os alvos secundarios,
-  mas NAO manda torpedos para alvos secundarios: dispara salvas completas no
-  alvo principal do momento (ainda nao implementado). Para torpedos em alvos
-  secundarios, atire a mao.
+- Torpedos com Auto Fire: o proprio Auto Fire manda os tubos que nao
+  alcancam o alvo para alvos secundarios que eles alcancam (veja
+  SecondaryTorpedoes na secao do Auto Fire); os tubos que alcancam o alvo
+  principal guardam os torpedos para ele.
 - Os patches opcionais do motor (um banco por alvo, arquivo de log) estao
   descritos em "Patches do motor" abaixo. O modulo funciona sem eles (varios
   bancos podem atirar no mesmo alvo, e nao ha arquivo de log).

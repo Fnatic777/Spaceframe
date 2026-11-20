@@ -1,7 +1,7 @@
 ###############################################################################
 #	SecondaryTarget.py
 #
-#	Spaceframe module, version 0.2
+#	Spaceframe module, version 0.3
 #
 #	Weapons that cannot reach the player's main target shoot at other
 #	enemies of the mission, without taking fire from the main target. Only
@@ -14,13 +14,15 @@
 #	- While ON the single-fire restriction of the ship's phasers is lifted
 #	  (pulse and torpedo groups keep their own setting); the original values are
 #	  restored when it goes OFF.
+#	- Torpedoes under Auto Fire are handled by Auto Fire (this module only
+#	  says which enemies may be torpedo secondaries: TorpedoCandidates).
 #	Settings: Modules\SecondaryTarget\Config.py
 ###############################################################################
 import App
 import sys
 
 NAME = "SecondaryTarget"
-VERSION = "0.2"
+VERSION = "0.3"
 BUTTON_TEXT = "Secondary Target"
 
 g_pCore = None
@@ -392,6 +394,43 @@ def GetCandidates(pShip, pMain, pSystem, sKind):
 		DebugLog("GetCandidates error: " + str(sys.exc_info()[1]))
 		return []
 	return lResult
+
+
+def TorpedoCandidates(pShip, pSystem, pMain):
+	# Public, used by Auto Fire: IDs of the enemies that may be torpedo
+	# secondaries now, nearest first (SecondaryTorpedoRange, MaxCandidates).
+	# [] unless the module is ON, the ship is the player's and has the
+	# torpedo bit, and the main target is an enemy. Writes no state.
+	try:
+		if (not g_iOn) or (pShip == None) or (pSystem == None) or (pMain == None):
+			return []
+		pPlayer = GetPlayer()
+		if (pPlayer == None) or (pPlayer.GetObjID() != pShip.GetObjID()):
+			return []
+		if (GetMask(pShip) & BIT_TORPEDO) == 0:
+			return []
+		pAF = GetAutoFire()
+		if (pAF == None) or (not pAF.IsEnemy(pMain)):
+			return []
+		lIDs = []
+		for pEnemy in GetCandidates(pShip, pMain, pSystem, "torpedo"):
+			lIDs.append(pEnemy.GetObjID())
+		return lIDs
+	except:
+		DebugLog("TorpedoCandidates error: " + str(sys.exc_info()[1]))
+		return []
+
+
+def AutoFireOwns(eGroup):
+	# 1 while Auto Fire builds the torpedo secondaries of this group itself.
+	try:
+		pAF = GetAutoFire()
+		if (pAF != None) and hasattr(pAF, "ManagesTorpedoSecondaries"):
+			if pAF.ManagesTorpedoSecondaries(eGroup):
+				return 1
+	except:
+		pass
+	return 0
 
 
 def FreeWeapons(pSystem, pMain, sKind):
@@ -949,6 +988,10 @@ def MaintainGroup(pShip, pMain, eGroup, iMask):
 		iShip = pShip.GetObjID()
 		iMain = pMain.GetObjID()
 		tKey = (iShip, eGroup)
+		if (sKind == "torpedo") and AutoFireOwns(eGroup):
+			# Auto Fire builds this group's list on every press (see AutoFire PlanTorpedoGroup).
+			ForgetAdded(iShip, eGroup)
+			return
 		lRecord = []
 		if g_dAdded.has_key(tKey):
 			lRecord = g_dAdded[tKey]

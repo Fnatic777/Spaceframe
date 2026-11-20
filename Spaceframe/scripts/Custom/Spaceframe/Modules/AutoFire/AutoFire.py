@@ -1,7 +1,7 @@
 ###############################################################################
 #	AutoFire.py
 #
-#	Spaceframe module, version 0.4
+#	Spaceframe module, version 0.5
 #
 #	Fires the player's weapons by firing-solution rules while switched on,
 #	so the player can concentrate on manoeuvring. Only the ship the player
@@ -13,6 +13,8 @@
 #	- Phasers by range, arc and charge; torpedoes by firing solution or
 #	  firing cone (Solution.py), with automatic spread; pulse weapons by
 #	  firing solution; torpedoes and pulse tapped (TapFire).
+#	- Torpedo tubes that cannot reach the target fire at secondary targets
+#	  they can reach, when Secondary Target allows it (SecondaryTorpedoes).
 #	- Targets: the player's, the nearest enemy, or each group's best
 #	  (TargetMode).
 #	Settings: Modules\AutoFire\Config.py
@@ -21,7 +23,7 @@ import App
 import sys
 
 NAME = "AutoFire"
-VERSION = "0.4"
+VERSION = "0.5"
 BUTTON_TEXT = "Auto Fire"
 
 g_pCore = None
@@ -44,6 +46,8 @@ g_iPlayerSpread = None	# the player's torpedo spread, to go back to
 g_iSetSpread = None	# the spread Auto Fire last set
 g_iSpreadShipID = None	# ship whose spread Auto Fire changed
 g_dArcReady = {}	# (pulse weapon ID, target ID) -> 1 while 'ready' for that target (PulseRule 3 hysteresis)
+g_dSecHead = {}		# held torpedo group -> ID of the secondary it was started at (no main shot)
+g_bTorpPlanLogged = 0	# 1 once a torpedo plan error was logged
 
 # Settings read once by LoadConfig() at Start (the hot path never asks Config).
 # Initial values = the defaults, so code run before Start behaves the same.
@@ -59,6 +63,7 @@ g_fSpreadMinDistance = 0.0
 g_fPulseMinSolution = 70.0
 g_iPulseRule = 1
 g_iTapFire = 1
+g_iSecondaryTorpedoes = 1
 g_fArcFar = 50.0		# PulseArcPercentFar
 g_fArcNear = 90.0		# PulseArcPercentNear
 g_fArcFarDistance = 171.0	# PulseArcFarDistance, world units
@@ -83,6 +88,7 @@ def LoadConfig():
 	global g_fSpreadMinSolution, g_fSpreadMinDistance, g_fPulseMinSolution
 	global g_iPulseRule, g_iTapFire, g_bArcLogged, g_bArcZeroLogged
 	global g_fArcFar, g_fArcNear, g_fArcFarDistance, g_fArcNearDistance, g_fArcHysteresis
+	global g_iSecondaryTorpedoes, g_bTorpPlanLogged
 	pConfig = GetConfig()
 	g_fArcFar = float(getattr(pConfig, "PulseArcPercentFar", 50))
 	g_fArcNear = float(getattr(pConfig, "PulseArcPercentNear", 90))
@@ -101,6 +107,8 @@ def LoadConfig():
 	g_fPulseMinSolution = float(getattr(pConfig, "PulseMinSolution", 70))
 	g_iPulseRule = int(getattr(pConfig, "PulseRule", 1))
 	g_iTapFire = int(getattr(pConfig, "TapFire", 1))
+	g_iSecondaryTorpedoes = int(getattr(pConfig, "SecondaryTorpedoes", 1))
+	g_bTorpPlanLogged = 0
 	g_bArcLogged = 0
 	g_bArcZeroLogged = 0
 	g_bDebug = 0
@@ -575,6 +583,157 @@ def TorpedoTarget(pShip, pTorpedoes, lTargets, eGroup):
 
 
 ###############################################################################
+#	Torpedo secondaries: tubes that cannot reach the main target fire at
+#	other enemies they reach. Secondary Target only says WHO may be a
+#	secondary (TorpedoCandidates); Auto Fire decides WHEN and with WHICH
+#	tube, and builds the group's target list in the same call that presses
+#	the group (a tube fires at the first listed target it reaches).
+###############################################################################
+def GetSecondaryTarget():
+	# The SecondaryTarget module if it is active and offers TorpedoCandidates
+	# (looked up at each press, never kept).
+	try:
+		pModule = g_pCore.GetModule("SecondaryTarget")
+		if (pModule != None) and hasattr(pModule, "TorpedoCandidates"):
+			return pModule
+	except:
+		pass
+	return None
+
+
+def ManagesTorpedoSecondaries(eGroup):
+	# 1 while Auto Fire builds the torpedo secondaries of this group itself
+	# (SecondaryTarget then leaves the group alone).
+	try:
+		if g_iSecondaryTorpedoes and IsEnabled() and (not g_dManual.get(eGroup)):
+			return 1
+	except:
+		pass
+	return 0
+
+
+def TubeInArc(pTube, vPoint, iOnError):
+	# IsInArc of a torpedo tube on a world point; iOnError if the call fails.
+	try:
+		if pTube.IsInArc(vPoint):
+			return 1
+		return 0
+	except:
+		return iOnError
+
+
+def AnyTubeInArc(lTubes, vPoint):
+	for pTube in lTubes:
+		if TubeInArc(pTube, vPoint, 1):
+			return 1
+	return 0
+
+
+def LogPlanError(sText):
+	global g_bTorpPlanLogged
+	if g_bDebug and (not g_bTorpPlanLogged) and (g_pCore != None):
+		g_bTorpPlanLogged = 1
+		try:
+			g_pCore.Log(NAME, sText)
+		except:
+			pass
+
+
+def SecondaryTorpedoPlan(pShip, pTorpedoes, pMain, bMainShot):
+	# [(solution, ship ID)] of the secondaries the ready free tubes can hit,
+	# best first. Free tube = ready and the main target is outside its arc.
+	# Without a main shot, a secondary that a ready main-reaching tube also
+	# has in arc is dropped, so no main-reaching tube can launch.
+	if (not g_iSecondaryTorpedoes) or (pMain == None):
+		return []
+	if TorpedoesLeft(pTorpedoes) <= g_iTorpedoReserve:
+		return []
+	pST = GetSecondaryTarget()
+	if pST == None:
+		return []
+	try:
+		lIDs = pST.TorpedoCandidates(pShip, pTorpedoes, pMain)
+	except:
+		LogPlanError("TorpedoCandidates error: " + str(sys.exc_info()[1]))
+		return []
+	if (lIDs == None) or (len(lIDs) == 0):
+		return []
+	vMain = pMain.GetWorldLocation()
+	lMainReady = []
+	lFree = []
+	for iChild in range(pTorpedoes.GetNumChildSubsystems()):
+		pTube = App.TorpedoTube_Cast(pTorpedoes.GetChildSubsystem(iChild))
+		if pTube != None:
+			iReady = 0
+			try:
+				iReady = pTube.GetNumReady()
+			except:
+				iReady = 0
+			if iReady > 0:
+				if TubeInArc(pTube, vMain, 1):
+					lMainReady.append(pTube)
+				else:
+					lFree.append(pTube)
+	if len(lFree) == 0:
+		return []
+	tInfo = GetSolution().GetProjectileInfo(None, pTorpedoes)
+	fMin = g_fTorpedoMinSolution
+	if g_iTorpedoRule == 2:
+		fMin = 1.0
+	iMain = pMain.GetObjID()
+	lScores = []
+	lPlan = []
+	for iID in lIDs:
+		if iID != iMain:
+			try:
+				pCandidate = App.ShipClass_GetObjectByID(None, iID)
+				if IsLive(pCandidate):
+					vPoint = pCandidate.GetWorldLocation()
+					if bMainShot or (not AnyTubeInArc(lMainReady, vPoint)):
+						fBest = -1.0
+						for pTube in lFree:
+							if TubeInArc(pTube, vPoint, 0):
+								fScore = GetSolution().Score(pShip, pCandidate, None, pTube, pTube.CalculateRoughDirection(), tInfo)
+								if fScore > fBest:
+									fBest = fScore
+						if fBest >= fMin:
+							i = 0
+							while (i < len(lScores)) and (lScores[i] >= fBest):
+								i = i + 1
+							lScores.insert(i, fBest)
+							lPlan.insert(i, (fBest, iID))
+			except:
+				LogPlanError("Secondary " + str(iID) + " skipped: " + str(sys.exc_info()[1]))
+	return lPlan
+
+
+def PlanTorpedoGroup(pShip, pTorpedoes, pTarget, lTargets, eGroup):
+	# (head target, secondary IDs, 1 if the head is a secondary) for a torpedo
+	# group about to be pressed. With a main shot the head is the main target;
+	# without one the head is the best secondary, fired Single.
+	if pTarget != None:
+		lPlan = SecondaryTorpedoPlan(pShip, pTorpedoes, pTarget, 1)
+		lIDs = []
+		for tEntry in lPlan:
+			lIDs.append(tEntry[1])
+		return (pTarget, lIDs, 0)
+	if len(lTargets) == 0:
+		return (None, [], 0)
+	lPlan = SecondaryTorpedoPlan(pShip, pTorpedoes, lTargets[0], 0)
+	if len(lPlan) == 0:
+		return (None, [], 0)
+	pHead = App.ShipClass_GetObjectByID(None, lPlan[0][1])
+	if not IsLive(pHead):
+		return (None, [], 0)
+	g_dScore[eGroup] = lPlan[0][0]
+	ApplySpread(pShip, pTorpedoes, pHead, 0.0)
+	lIDs = []
+	for tEntry in lPlan[1:]:
+		lIDs.append(tEntry[1])
+	return (pHead, lIDs, 1)
+
+
+###############################################################################
 #	Torpedo spread: the largest spread for the best solutions, Single for
 #	the rest; the player's own choice comes back when Auto Fire lets go.
 ###############################################################################
@@ -882,10 +1041,11 @@ def IsTapped(pSystem):
 	return 0
 
 
-def FireGroup(pShip, eGroup, pTarget, bFire):
+def FireGroup(pShip, eGroup, pTarget, bFire, lSec=None, bHeadSec=0):
 	# Starts or stops one weapon group, like the game's fire keys do.
 	# Only stops what Auto Fire itself started. Tapped groups are pressed
 	# on one cycle and released on the next while they should fire.
+	# lSec: IDs of secondary targets added after pTarget (torpedo groups).
 	pSystem = pShip.GetWeaponSystemGroup(eGroup)
 	if pSystem == None:
 		g_dFiring[eGroup] = None
@@ -907,6 +1067,21 @@ def FireGroup(pShip, eGroup, pTarget, bFire):
 			except:
 				pass
 		pSystem.StartFiring(pTarget, vOffset)
+		if lSec:
+			pZero = App.TGPoint3()
+			try:
+				pZero.SetXYZ(0.0, 0.0, 0.0)
+			except:
+				pass
+			for iSec in lSec:
+				if iSec != iID:
+					try:
+						pSec = App.ShipClass_GetObjectByID(None, iSec)
+						if IsLive(pSec):
+							pSystem.StartFiring(pSec, pZero)
+					except:
+						if g_bDebug and (g_pCore != None):
+							g_pCore.Log(NAME, "Secondary " + str(iSec) + " start error: " + str(sys.exc_info()[1]))
 		try:
 			pSystem.SetForceUpdate(1)
 		except:
@@ -914,7 +1089,15 @@ def FireGroup(pShip, eGroup, pTarget, bFire):
 		g_dFiring[eGroup] = iID
 		SetFiringShip(pShip)
 		if g_bDebug and (g_dScore.get(eGroup) != None):
-			g_pCore.Log(NAME, "Group " + str(eGroup) + " fires, solution " + str(int(g_dScore[eGroup])))
+			sText = "Group " + str(eGroup) + " fires"
+			if bHeadSec:
+				sText = sText + " at secondary " + str(iID)
+			sText = sText + ", solution " + str(int(g_dScore[eGroup]))
+			if lSec:
+				sText = sText + " +sec"
+				for iSec in lSec:
+					sText = sText + " " + str(iSec)
+			g_pCore.Log(NAME, sText)
 	elif g_dFiring.get(eGroup) != None:
 		pSystem.StopFiring()
 		g_dFiring[eGroup] = None
@@ -972,7 +1155,31 @@ def FireCycle():
 				g_dScore[eGroup] = None
 				if pSystem != None:
 					pTarget = GroupTarget(pShip, pSystem, lTargets, eGroup)
-				FireGroup(pShip, eGroup, pTarget, pTarget != None)
+				lSec = []
+				bHeadSec = 0
+				pTorpedoes = None
+				if pSystem != None:
+					pTorpedoes = App.TorpedoSystem_Cast(pSystem)
+				bPlanned = 0
+				if (pTorpedoes != None) and ((g_dFiring.get(eGroup) == None) or (not IsFiring(pSystem))):
+					# About to press (or press again) a torpedo group: plan its list.
+					bPlanned = 1
+					try:
+						tPlan = PlanTorpedoGroup(pShip, pTorpedoes, pTarget, lTargets, eGroup)
+						pTarget = tPlan[0]
+						lSec = tPlan[1]
+						bHeadSec = tPlan[2]
+					except:
+						LogPlanError("Torpedo plan error: " + str(sys.exc_info()[1]))
+				if (not bPlanned) and (pTarget == None) and (pTorpedoes != None) and (g_dFiring.get(eGroup) != None) and (g_dSecHead.get(eGroup) == g_dFiring.get(eGroup)) and (not IsTapped(pSystem)):
+					# A held group started at a secondary keeps firing: its list stays.
+					pass
+				else:
+					FireGroup(pShip, eGroup, pTarget, pTarget != None, lSec, bHeadSec)
+					if bHeadSec and (pTarget != None):
+						g_dSecHead[eGroup] = pTarget.GetObjID()
+					else:
+						g_dSecHead[eGroup] = None
 			except:
 				g_pCore.Log(NAME, "Group " + str(eGroup) + " error: " + str(sys.exc_info()[1]))
 				try:
@@ -1023,8 +1230,9 @@ def Probe():
 #	Spaceframe module interface
 ###############################################################################
 def Start(pCore):
-	global g_pCore, g_pMission, g_dManual, g_dFiring
+	global g_pCore, g_pMission, g_dManual, g_dFiring, g_dSecHead
 	Stop()
+	g_dSecHead = {}
 	g_pCore = pCore
 	import Custom.Spaceframe.Modules.AutoFire.Config
 	reload(Custom.Spaceframe.Modules.AutoFire.Config)
@@ -1062,9 +1270,10 @@ def Stop():
 	# Called when the battle ends, while the game is destroying the ships:
 	# nothing is asked of them (their weapons stop with them), Auto Fire
 	# only forgets what it was firing.
-	global g_iOn, g_iShipID, g_pMission, g_iFiringShipID
+	global g_iOn, g_iShipID, g_pMission, g_iFiringShipID, g_dSecHead
 	for tEntry in GetFireEvents():
 		g_dFiring[tEntry[1]] = None
+	g_dSecHead = {}
 	g_iFiringShipID = None
 	ForgetSpread()
 	ForgetArc()

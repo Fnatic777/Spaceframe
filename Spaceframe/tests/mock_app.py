@@ -601,6 +601,7 @@ class WeaponGroup:
 	def __init__(self, lChildren):
 		self.lChildren = lChildren
 		self.calls = []
+		self.forced = []
 		self.firing = 0
 		self.ammo = Ammo()
 		self.available = 100
@@ -632,7 +633,8 @@ class WeaponGroup:
 		self.firing = 0
 
 	def SetForceUpdate(self, i):
-		pass
+		# Records len(calls) at call time (not in calls: tests compare it).
+		self.forced.append(len(self.calls))
 
 	def GetNumFiringChains(self):
 		return self.chains
