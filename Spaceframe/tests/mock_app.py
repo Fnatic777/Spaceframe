@@ -455,6 +455,13 @@ class Tube:
 		self.vDir = vDir or Point(1.0, 0.0, 0.0)
 		self.iReady = iReady
 		self.pPos = pPos or Point()
+		Tube.counter = Tube.counter + 1
+		self.iID = Tube.counter
+
+	counter = 7000
+
+	def GetObjID(self):
+		return self.iID
 
 	def GetNumReady(self):
 		return self.iReady
@@ -563,6 +570,16 @@ class Pulse:
 		self.arcPoints.append(pPoint)
 		if self.iArc == "raise":
 			raise TypeError("IsInArc")
+		if self.iArc == "box":
+			# Geometric: the box of limits/axes from pPos (identity ship rotation).
+			import math
+			d = Point(pPoint.x - self.pPos.x, pPoint.y - self.pPos.y, pPoint.z - self.pPos.z)
+			df = d.Dot(self.axes[0])
+			if df <= 0.0:
+				return 0
+			w = math.atan2(d.Dot(self.axes[1]), df)
+			h = math.atan2(d.Dot(self.axes[2]), df)
+			return int(self.limits[0] <= w <= self.limits[1] and self.limits[2] <= h <= self.limits[3])
 		return self.iArc
 
 	def GetLaunchSpeed(self):

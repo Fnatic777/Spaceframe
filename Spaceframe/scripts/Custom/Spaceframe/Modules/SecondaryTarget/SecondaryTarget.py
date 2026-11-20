@@ -14,8 +14,15 @@
 #	- While ON the single-fire restriction of the ship's phasers is lifted
 #	  (pulse and torpedo groups keep their own setting); the original values are
 #	  restored when it goes OFF.
-#	- Torpedoes under Auto Fire are handled by Auto Fire (this module only
-#	  says which enemies may be torpedo secondaries: TorpedoCandidates).
+#	- Torpedoes under Auto Fire, and pulse weapons under Auto Fire with
+#	  PulseRule 3, are handled by Auto Fire (this module only says which
+#	  enemies may be secondaries: TorpedoCandidates, PulseCandidates).
+#	- Phasers: secondaries are added here while the group fires at the main
+#	  target; when no bank reaches the main target, Auto Fire starts the group
+#	  at a secondary itself (PhaserCandidates).
+#	- With the arc-percent rule (Auto Fire's PulseRule / TorpedoRule 3, pulse
+#	  or torpedo), only secondaries a free weapon reaches inside the allowed
+#	  arc percent are added; the main target is never restricted.
 #	Settings: Modules\SecondaryTarget\Config.py
 ###############################################################################
 import App
@@ -68,6 +75,7 @@ g_dNoRearm = {}		# (ship ID, group) -> last NOREARM reason logged (Debug = 1 onl
 g_tKeyLast = None	# Debug = 1 only: (event type, state, game time) of the last KEY trace line
 g_dStateLast = {}	# (ship ID, group) -> (state text, game time it was appended)
 g_fTraceT0 = 0.0	# game time of the first line of the current trace
+g_dArcSkip = {}		# Debug = 1 only: (ship ID, kind) -> IDs the arc percent held back (logged on change)
 
 BIT_PHASER = 1
 BIT_TORPEDO = 2
@@ -279,7 +287,8 @@ def ForgetAll():
 	# Drops every record without touching any ship (used by Stop).
 	global g_dLifted, g_dAdded, g_iShipID, g_tLiftDone, g_bArcLogged, g_dStateAt, g_dEmptyShown
 	global g_lTrace, g_dStateLast, g_tTraceRep, g_dKeyHeld, g_dRearmAt, g_dNoRearm, g_tKeyLast
-	global g_dPressAt, g_dRearmCnt, g_dPressTgt, g_dFireAt, g_dGuardLogged
+	global g_dPressAt, g_dRearmCnt, g_dPressTgt, g_dFireAt, g_dGuardLogged, g_dArcSkip
+	g_dArcSkip = {}
 	g_dPressAt = {}
 	g_dRearmCnt = {}
 	g_dPressTgt = {}
@@ -352,7 +361,7 @@ def GetWeapons(pSystem, sKind):
 def GetCandidates(pShip, pMain, pSystem, sKind):
 	# Live enemy ships of the mission, nearest first, other than the main
 	# target; at most MaxCandidates. Phasers: only those within SecondaryRange
-	# percent of the banks' maximum damage distance. Torpedoes: within
+	# percent of the banks' maximum damage distance (0 = no limit). Torpedoes: within
 	# SecondaryTorpedoRange km (0 = no limit). Pulse: no range filter.
 	lResult = []
 	pAF = GetAutoFire()
@@ -362,14 +371,15 @@ def GetCandidates(pShip, pMain, pSystem, sKind):
 		fLimit = 0.0
 		bLimit = 0
 		if sKind == "phaser":
-			bLimit = 1
-			for pBank in GetWeapons(pSystem, "phaser"):
-				fMax = pBank.GetMaxDamageDistance()
-				if fMax > fLimit:
-					fLimit = fMax
-			fLimit = fLimit * g_fSecondaryRange / 100.0
-			if fLimit <= 0.0:
-				return lResult
+			if g_fSecondaryRange > 0.0:
+				bLimit = 1
+				for pBank in GetWeapons(pSystem, "phaser"):
+					fMax = pBank.GetMaxDamageDistance()
+					if fMax > fLimit:
+						fLimit = fMax
+				fLimit = fLimit * g_fSecondaryRange / 100.0
+				if fLimit <= 0.0:
+					return lResult
 		elif sKind == "torpedo":
 			if g_fTorpedoRange > 0.0:
 				bLimit = 1
@@ -396,36 +406,59 @@ def GetCandidates(pShip, pMain, pSystem, sKind):
 	return lResult
 
 
-def TorpedoCandidates(pShip, pSystem, pMain):
-	# Public, used by Auto Fire: IDs of the enemies that may be torpedo
-	# secondaries now, nearest first (SecondaryTorpedoRange, MaxCandidates).
-	# [] unless the module is ON, the ship is the player's and has the
-	# torpedo bit, and the main target is an enemy. Writes no state.
+def KindCandidates(pShip, pSystem, pMain, iBit, sKind):
+	# IDs of the enemies that may be secondaries of this kind now, nearest
+	# first. [] unless the module is ON, the ship is the player's and has the
+	# kind's bit, and the main target is an enemy. Writes no state.
 	try:
 		if (not g_iOn) or (pShip == None) or (pSystem == None) or (pMain == None):
 			return []
 		pPlayer = GetPlayer()
 		if (pPlayer == None) or (pPlayer.GetObjID() != pShip.GetObjID()):
 			return []
-		if (GetMask(pShip) & BIT_TORPEDO) == 0:
+		if (GetMask(pShip) & iBit) == 0:
 			return []
 		pAF = GetAutoFire()
 		if (pAF == None) or (not pAF.IsEnemy(pMain)):
 			return []
 		lIDs = []
-		for pEnemy in GetCandidates(pShip, pMain, pSystem, "torpedo"):
+		for pEnemy in GetCandidates(pShip, pMain, pSystem, sKind):
 			lIDs.append(pEnemy.GetObjID())
 		return lIDs
 	except:
-		DebugLog("TorpedoCandidates error: " + str(sys.exc_info()[1]))
+		DebugLog(sKind + " candidates error: " + str(sys.exc_info()[1]))
 		return []
 
 
-def AutoFireOwns(eGroup):
-	# 1 while Auto Fire builds the torpedo secondaries of this group itself.
+def TorpedoCandidates(pShip, pSystem, pMain):
+	# Public, used by Auto Fire: IDs of the enemies that may be torpedo
+	# secondaries now (SecondaryTorpedoRange, MaxCandidates).
+	return KindCandidates(pShip, pSystem, pMain, BIT_TORPEDO, "torpedo")
+
+
+def PulseCandidates(pShip, pSystem, pMain):
+	# Public, used by Auto Fire (PulseRule 3): IDs of the enemies that may be
+	# pulse secondaries now (MaxCandidates, no range limit).
+	return KindCandidates(pShip, pSystem, pMain, BIT_PULSE, "pulse")
+
+
+def PhaserCandidates(pShip, pSystem, pMain):
+	# Public, used by Auto Fire (SecondaryPhasers): IDs of the enemies that may
+	# be phaser secondaries now (SecondaryRange % of the banks' full-damage
+	# range, MaxCandidates), nearest first.
+	return KindCandidates(pShip, pSystem, pMain, BIT_PHASER, "phaser")
+
+
+def AutoFireOwns(eGroup, sKind="torpedo"):
+	# 1 while Auto Fire builds the secondaries of this group itself.
 	try:
 		pAF = GetAutoFire()
-		if (pAF != None) and hasattr(pAF, "ManagesTorpedoSecondaries"):
+		if pAF == None:
+			return 0
+		if sKind == "pulse":
+			if hasattr(pAF, "ManagesPulseSecondaries") and pAF.ManagesPulseSecondaries(eGroup):
+				return 1
+		elif hasattr(pAF, "ManagesTorpedoSecondaries"):
 			if pAF.ManagesTorpedoSecondaries(eGroup):
 				return 1
 	except:
@@ -433,15 +466,43 @@ def AutoFireOwns(eGroup):
 	return 0
 
 
+def ArcRule(sKind):
+	# 1 when Auto Fire's arc-percent rule is selected for this kind (PulseRule /
+	# TorpedoRule 3): then only secondaries a free weapon reaches inside the
+	# allowed percent are added. 0 if Auto Fire is old or errors (today's way).
+	try:
+		pAF = GetAutoFire()
+		if (pAF != None) and hasattr(pAF, "ArcRuleOn") and hasattr(pAF, "ArcReaches"):
+			if pAF.ArcRuleOn(sKind):
+				return 1
+	except:
+		pass
+	return 0
+
+
+def SecReach(pShip, pSystem, pWeapon, pCandidate, sKind):
+	# 1 when the free weapon reaches the candidate by the engine's arc AND
+	# inside the allowed arc percent (manual fire never restricts the main).
+	try:
+		if not Reaches(pWeapon, pCandidate.GetWorldLocation(), sKind, 0):
+			return 0
+		if GetAutoFire().ArcReaches(pShip, pSystem, pWeapon, pCandidate, sKind):
+			return 1
+	except:
+		pass
+	return 0
+
+
 def FreeWeapons(pSystem, pMain, sKind):
 	# Weapons that do not reach the main target (phaser: CanHit on its world
-	# point is false; torpedo tube: IsInArc on it is false, a failing call counts
-	# as NOT free). Pulse weapons are all free. No main target: nothing.
+	# point is false; torpedo tube and, with the arc-percent rule, pulse weapon:
+	# IsInArc on it is false, a failing call counts as NOT free). Pulse weapons
+	# are all free without the arc-percent rule. No main target: nothing.
 	lFree = []
 	if pMain == None:
 		return lFree
 	lWeapons = GetWeapons(pSystem, sKind)
-	if sKind == "pulse":
+	if (sKind == "pulse") and (not ArcRule("pulse")):
 		return lWeapons
 	try:
 		pPoint = pMain.GetWorldLocation()
@@ -460,36 +521,60 @@ def Reaches(pWeapon, pPoint, sKind, iOnError):
 	# engine call fails (logged once for tubes).
 	global g_bArcLogged
 	try:
-		if sKind == "torpedo":
+		if (sKind == "torpedo") or (sKind == "pulse"):
 			return pWeapon.IsInArc(pPoint)
 		return pWeapon.CanHit(pPoint)
 	except:
-		if (sKind != "torpedo") or (not g_bArcLogged):
+		if (sKind == "phaser") or (not g_bArcLogged):
 			DebugLog("Reach error (" + sKind + "): " + str(sys.exc_info()[1]))
-		if sKind == "torpedo":
+		if sKind != "phaser":
 			g_bArcLogged = 1
 		return iOnError
 
 
 def WantedTargets(pShip, pSystem, pMain, sKind):
-	# Object IDs of the candidates that at least one free weapon can reach.
+	# Object IDs of the candidates that at least one free weapon can reach. With
+	# the arc-percent rule (pulse or torpedo) the weapon must also have the
+	# candidate inside the allowed percent (SecReach).
+	global g_dArcSkip
 	lWanted = []
 	try:
 		lFree = FreeWeapons(pSystem, pMain, sKind)
 		if len(lFree) == 0:
 			return lWanted
+		bArc = 0
+		if (sKind == "pulse") or (sKind == "torpedo"):
+			bArc = ArcRule(sKind)
+		lSkipped = []
 		for pCandidate in GetCandidates(pShip, pMain, pSystem, sKind):
 			bReach = 0
-			if sKind == "pulse":
+			if (sKind == "pulse") and (not bArc):
 				bReach = 1
 			else:
 				pPoint = pCandidate.GetWorldLocation()
+				bSeen = 0
 				for pWeapon in lFree:
-					if Reaches(pWeapon, pPoint, sKind, 0):
+					if bArc:
+						if Reaches(pWeapon, pPoint, sKind, 0):
+							bSeen = 1
+						if SecReach(pShip, pSystem, pWeapon, pCandidate, sKind):
+							bReach = 1
+							break
+					elif Reaches(pWeapon, pPoint, sKind, 0):
 						bReach = 1
 						break
+				if bSeen and (not bReach):
+					lSkipped.append(pCandidate.GetObjID())
 			if bReach:
 				lWanted.append(pCandidate.GetObjID())
+		if g_bDebug and bArc:
+			tKey = (pShip.GetObjID(), sKind)
+			if g_dArcSkip.get(tKey) != lSkipped:
+				g_dArcSkip[tKey] = lSkipped
+				sSkip = IDText(lSkipped)
+				if sSkip == "":
+					sSkip = "none"
+				TraceAdd("ARC-SKIP " + sKind + " " + sSkip)
 	except:
 		DebugLog("WantedTargets error: " + str(sys.exc_info()[1]))
 		return []
@@ -918,12 +1003,13 @@ def RearmReason(pShip, pSystem, pMain, eGroup, tKey):
 	if iFwdRdy > 0:
 		return ("fwdready", iFreeRdy)
 	bSec = 0
+	bArc = ArcRule("torpedo")
 	for iID in WantedTargets(pShip, pSystem, pMain, "torpedo"):
 		pSec = Lookup(iID)
 		if (pSec != None) and (not bSec):
 			pSecPoint = pSec.GetWorldLocation()
 			for pTube in lFreeTubes:
-				if Reaches(pTube, pSecPoint, "torpedo", 0):
+				if Reaches(pTube, pSecPoint, "torpedo", 0) and ((not bArc) or SecReach(pShip, pSystem, pTube, pSec, "torpedo")):
 					bSec = 1
 					break
 	if not bSec:
@@ -988,8 +1074,8 @@ def MaintainGroup(pShip, pMain, eGroup, iMask):
 		iShip = pShip.GetObjID()
 		iMain = pMain.GetObjID()
 		tKey = (iShip, eGroup)
-		if (sKind == "torpedo") and AutoFireOwns(eGroup):
-			# Auto Fire builds this group's list on every press (see AutoFire PlanTorpedoGroup).
+		if ((sKind == "torpedo") or (sKind == "pulse")) and AutoFireOwns(eGroup, sKind):
+			# Auto Fire builds this group's list on every press (see AutoFire PlanGroup).
 			ForgetAdded(iShip, eGroup)
 			return
 		lRecord = []

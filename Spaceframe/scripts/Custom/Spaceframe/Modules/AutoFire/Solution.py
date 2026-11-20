@@ -41,6 +41,7 @@ PULSE_CONE_FAR_DISTANCE = 171.0	# PulseConeFarDistance, in world units
 PULSE_CONE_NEAR_DISTANCE = 29.0	# PulseConeNearDistance, in world units
 WEAPON_POSITION = "A"		# ArcDepth weapon position: "A" = pWeapon.GetWorldLocation(), "B" = ship + rotation * pWeapon.GetPosition()
 ARC_BEHIND = 99.0		# ArcDepth of a point behind the weapon
+TORP_ARC_HALF = 0.5235988	# the torpedo tube cone: +-30 degrees on both axes (fixed in the engine)
 
 g_dScripts = {}		# torpedo script name -> (guidance, turn, lifetime)
 
@@ -320,3 +321,71 @@ def ArcDepth(pShip, pWeapon, vPoint, sMode=None):
 		return max(AxisDepth(fWidth, tLimits[0], tLimits[1]), AxisDepth(fHeight, tLimits[2], tLimits[3]))
 	except:
 		return None
+
+
+###############################################################################
+#	Torpedo tube cone (TorpedoRule 3). The tube's arc is a fixed cone of +-30
+#	degrees on both axes (confirmed TORPARC model): Fwd = ship rotation *
+#	tube.GetDirection(), Right = ship rotation * tube.GetRight(), Up = Right x
+#	Fwd (its sign is irrelevant: the cone is symmetric). Pure floats after the
+#	frame is read.
+###############################################################################
+def Triple(vAny):
+	# Any vector wrapper -> (x, y, z) floats.
+	return (float(vAny.GetX()), float(vAny.GetY()), float(vAny.GetZ()))
+
+
+def LocalToWorld(pShip, vAny):
+	# A tube-local vector into world axes, as a float triple (a fresh TGPoint3,
+	# the ship's world rotation applied).
+	tLocal = Triple(vAny)
+	vPoint = App.TGPoint3()
+	vPoint.SetXYZ(tLocal[0], tLocal[1], tLocal[2])
+	vPoint.MultMatrixLeft(pShip.GetWorldRotation())
+	return Triple(vPoint)
+
+
+def TubeFrame(pShip, pTube):
+	# (position, forward, right, up) of the tube in world axes as float tuples,
+	# or None when anything is unavailable.
+	try:
+		tFwd = LocalToWorld(pShip, pTube.GetDirection())
+		tRight = LocalToWorld(pShip, pTube.GetRight())
+		tUp = (tRight[1] * tFwd[2] - tRight[2] * tFwd[1],
+			tRight[2] * tFwd[0] - tRight[0] * tFwd[2],
+			tRight[0] * tFwd[1] - tRight[1] * tFwd[0])
+		tPos = Triple(pTube.GetWorldLocation())
+		return (tPos, tFwd, tRight, tUp)
+	except:
+		return None
+
+
+def Dot3(tA, tB):
+	return tA[0] * tB[0] + tA[1] * tB[1] + tA[2] * tB[2]
+
+
+def TubeDepth(tFrame, vPoint):
+	# How deep the world point is inside the tube's cone: 0 at the centre, 1 at
+	# the edge (+-30 degrees, the deeper axis counts), ARC_BEHIND when it is
+	# behind the tube. None on any error.
+	if tFrame == None:
+		return None
+	try:
+		tPoint = Triple(vPoint)
+		tDelta = (tPoint[0] - tFrame[0][0], tPoint[1] - tFrame[0][1], tPoint[2] - tFrame[0][2])
+		fForward = Dot3(tDelta, tFrame[1])
+		if fForward <= 0.0:
+			return ARC_BEHIND
+		fWidth = math.atan2(Dot3(tDelta, tFrame[2]), fForward)
+		fHeight = math.atan2(Dot3(tDelta, tFrame[3]), fForward)
+		return max(abs(fWidth), abs(fHeight)) / TORP_ARC_HALF
+	except:
+		return None
+
+
+def TorpedoArcDepth(pShip, pTube, vPoint):
+	# TubeFrame + TubeDepth; None if the frame is unavailable.
+	tFrame = TubeFrame(pShip, pTube)
+	if tFrame == None:
+		return None
+	return TubeDepth(tFrame, vPoint)

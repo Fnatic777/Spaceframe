@@ -52,6 +52,58 @@ def test_phaser_range_setting():
 	assert primary.starts() == 0
 
 
+class CountBank(mock_app.Bank):
+	def __init__(self, *a):
+		mock_app.Bank.__init__(self, *a)
+		self.n = {"charge": 0, "max": 0}
+
+	def GetChargePercentage(self):
+		self.n["charge"] = self.n["charge"] + 1
+		return self.fCharge
+
+	def GetMaxDamageDistance(self):
+		self.n["max"] = self.n["max"] + 1
+		return self.fMax
+
+
+def ready(AF, target, **kw):
+	cfg = AF.GetConfig()
+	for k in kw:
+		setattr(cfg, k, kw[k])
+	AF.LoadConfig()
+	return AF.PhaserReady
+
+
+def test_range_zero_skips_range_check():
+	App, AF, ship, target, primary = setup(80.0)
+	pBank = CountBank(100.0, 1.0, 1)
+	target.pos = mock_app.Point(5000.0, 0.0, 0.0)	# far beyond 5x max damage distance
+	fn = ready(AF, target, PhaserRange=0)
+	assert fn(pBank, target) == 1
+	assert pBank.n["max"] == 0
+	# not in arc: still not ready
+	assert fn(CountBank(100.0, 1.0, 0), target) == 0
+
+
+def test_min_charge_zero_skips_charge_check():
+	App, AF, ship, target, primary = setup(80.0)
+	pBank = CountBank(100.0, 0.0, 1)
+	fn = ready(AF, target, PhaserMinCharge=0)
+	assert fn(pBank, target) == 1
+	assert pBank.n["charge"] == 0
+
+
+def test_positive_values_boundaries():
+	App, AF, ship, target, primary = setup(80.0)
+	fn = ready(AF, target, PhaserRange=100, PhaserMinCharge=50)
+	assert fn(CountBank(100.0, 0.5, 1), target) == 1	# charge exactly 50
+	assert fn(CountBank(100.0, 0.49, 1), target) == 0
+	target.pos = mock_app.Point(100.0 + target.radius, 0.0, 0.0)	# exactly at range
+	assert fn(CountBank(100.0, 1.0, 1), target) == 1
+	target.pos = mock_app.Point(100.5 + target.radius, 0.0, 0.0)
+	assert fn(CountBank(100.0, 1.0, 1), target) == 0
+
+
 def test_manual_priority():
 	App, AF, ship, target, primary = setup(80.0)
 	AF.g_dManual[App.ShipClass.WG_PRIMARY] = 1

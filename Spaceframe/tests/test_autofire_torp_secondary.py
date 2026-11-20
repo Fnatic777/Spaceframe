@@ -234,6 +234,76 @@ def test_phasers_untouched_by_plan():
 	assert fake.n == 1
 
 
+# --- TorpedoRule 3 (arc percent on the real, geometric tube cone) --------------
+def setup3(tap=1, fwd=1, aft=1, secx=-20.0, secy=0.0):
+	"""As setup(), but with TorpedoRule 3, the real Solution and geometric tubes:
+	forward tube (+x), aft tube (-x); the secondary at (secx, secy, 0)."""
+	App, AF, core, ship = base.setup(TorpedoMinSolution=70, TapFire=tap, TorpedoRule=3,
+		SecondaryTorpedoes=1, TorpedoArcPercentFar=50, TorpedoArcPercentNear=90,
+		TorpedoArcFarDistance=30, TorpedoArcNearDistance=5, TorpedoArcHysteresis=10)
+	S = mock_app.load_module("Modules/AutoFire/Solution.py", "Custom.Spaceframe.Modules.AutoFire.Solution")
+	sys.modules["Custom.Spaceframe.Modules.AutoFire"].Solution = S
+	main = mock_app.Ship("Main", 7)
+	main.pos = mock_app.Point(10.0, 0.0, 0.0)
+	sec = mock_app.Ship("Sec", 8)
+	sec.pos = mock_app.Point(secx, secy, 0.0)
+	ship.target = main
+	core.g_pMission = mock_app.Mission([main, sec])
+	tFwd = mock_app.Tube(iReady=fwd)
+	tAft = mock_app.Tube(mock_app.Point(-1.0, 0.0, 0.0), iReady=aft)
+	torps = mock_app.WeaponGroup([tFwd, tAft])
+	torps.torpedo = 1
+	ship.groups[GROUP] = torps
+	fake = FakeST([8])
+	core.modules["SecondaryTarget"] = fake
+	AF.Toggle()
+	return AF, core, ship, main, sec, torps, fake, S
+
+
+def test_rule3_main_shot_plus_secondary_within_percent():
+	AF, core, ship, main, sec, torps, fake, S = setup3()
+	AF.FireCycle()
+	assert started(torps) == [7, 8]
+
+
+def test_rule3_secondary_inside_cone_but_outside_percent_not_added():
+	# 28.5 degrees off the aft axis: inside the 30 degree cone, deeper than 90 %.
+	AF, core, ship, main, sec, torps, fake, S = setup3(secy=10.86)
+	assert torps.lChildren[1].IsInArc(sec.GetWorldLocation())
+	AF.FireCycle()
+	assert started(torps) == [7]
+
+
+def test_rule3_no_main_shot_secondary_alone_single_spread():
+	AF, core, ship, main, sec, torps, fake, S = setup3(fwd=0)
+	torps.chains = 3
+	torps.chain = 2
+	AF.FireCycle()
+	assert started(torps) == [8]
+	assert torps.chain == 0
+
+
+def test_rule3_secondary_hysteresis_survives_the_release_cycle():
+	AF, core, ship, main, sec, torps, fake, S = setup3()
+	AF.FireCycle()
+	iAft = torps.lChildren[1].GetObjID()
+	assert (iAft, 8) in AF.g_dArcReady
+	AF.FireCycle()	# tapped: the release cycle
+	assert torps.calls[-1] == ("stop",)
+	assert (iAft, 8) in AF.g_dArcReady
+	assert AF.g_dArcSec[GROUP] == [8]
+
+
+def test_rule3_no_secondary_dropped_key_when_not_listed():
+	AF, core, ship, main, sec, torps, fake, S = setup3()
+	AF.FireCycle()
+	AF.FireCycle()
+	fake.lIDs = []
+	AF.FireCycle()
+	AF.FireCycle()
+	assert (torps.lChildren[1].GetObjID(), 8) not in AF.g_dArcReady
+
+
 def run():
 	failed = 0
 	names = [n for n in sorted(globals()) if n.startswith("test_")]

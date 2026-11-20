@@ -68,6 +68,7 @@ g_fBleedMax = 0.5		# share that bleeds through with the armor empty
 g_iCreateSubsystem = 1
 g_iTargetable = 1
 g_iReported = 0		# subsystem creation result already shown on screen
+g_iNoSubsystem = 0	# 1 once HullClass_Create raised TypeError: stop trying
 
 
 ###############################################################################
@@ -201,7 +202,9 @@ def FindArmorSubsystem(pShip):
 def CreateArmorSubsystem(pShip, fMax, fComplexity):
 	# Creates the "Ablative Armor" subsystem on the ship. Returns it, or
 	# None if the game does not accept it.
-	global g_iReported
+	global g_iReported, g_iNoSubsystem
+	if g_iNoSubsystem:
+		return None
 	pSub = None
 	try:
 		pHull = pShip.GetHull()
@@ -244,6 +247,8 @@ def CreateArmorSubsystem(pShip, fMax, fComplexity):
 			if pSub.GetMaxCondition() <= 0.0:
 				pSub = None
 	except:
+		if sys.exc_info()[0] == TypeError:
+			g_iNoSubsystem = 1
 		g_pCore.Log(NAME, "Subsystem creation failed: " + str(sys.exc_info()[0]) + " - " + str(sys.exc_info()[1]))
 		pSub = None
 
@@ -526,7 +531,7 @@ def GetArmorInfo(pShip):
 #	Spaceframe module interface
 ###############################################################################
 def Start(pCore):
-	global g_pCore, g_dTypeCache, g_dShips, g_iReported, g_dErrorLogged
+	global g_pCore, g_dTypeCache, g_dShips, g_iReported, g_dErrorLogged, g_iNoSubsystem
 	global g_fSubsystemCost, g_fArmorComplexity, g_iCreateSubsystem, g_iTargetable
 	global g_fBleedStart, g_fBleedMax
 	g_pCore = pCore
@@ -534,6 +539,7 @@ def Start(pCore):
 	g_dShips = {}
 	g_dErrorLogged = {}
 	g_iReported = 0
+	g_iNoSubsystem = 0
 	import Custom.Spaceframe.Modules.AblativeArmor.Config
 	reload(Custom.Spaceframe.Modules.AblativeArmor.Config)
 	pConfig = GetConfig()
