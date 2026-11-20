@@ -38,7 +38,8 @@ Modules             - modules are enabled automatically; set one to 0 to
                       disable it, e.g. "MVShields": 0
 Interval            - time between timer cycles (default 0.25 s)
 EnableInMultiplayer - 1 = also run in multiplayer (may desync)
-Debug               - 1 = write Spaceframe_debug.log in the game folder (needs the
+Debug               - 2 = the log (as 1) plus short banners on screen (plans, errors).
+                      1 = write Spaceframe_debug.log in the game folder (needs the
                       optional "fileio" engine patch, see "Engine patches"; without
                       it one banner says the log is unavailable). Max 5000 lines
                       per session, each stamped with the game time. Leave it 0
@@ -373,7 +374,8 @@ Modules             - los modulos se activan automaticamente; ponga 0 para
                       desactivar uno, p. ej. "MVShields": 0
 Interval            - tiempo entre ciclos del temporizador (por defecto 0,25 s)
 EnableInMultiplayer - 1 = tambien funciona en multijugador (puede desincronizar)
-Debug               - 1 = escribe Spaceframe_debug.log en la carpeta del juego
+Debug               - 2 = el log (como 1) y ademas avisos cortos en pantalla.
+                      1 = escribe Spaceframe_debug.log en la carpeta del juego
                       (necesita el parche opcional "fileio" del motor, vea
                       "Parches del motor"; sin el, un aviso dice que el log no
                       esta disponible). Maximo 5000 lineas por sesion, cada una
@@ -723,7 +725,8 @@ Modules             - os modulos sao ligados automaticamente; coloque 0 para
                       desligar um, ex. "MVShields": 0
 Interval            - tempo entre os ciclos do timer (padrao 0,25 s)
 EnableInMultiplayer - 1 = funciona tambem no multiplayer (pode dessincronizar)
-Debug               - 1 = grava Spaceframe_debug.log na pasta do jogo (precisa do
+Debug               - 2 = o log (como 1) e tambem avisos curtos na tela.
+                      1 = grava Spaceframe_debug.log na pasta do jogo (precisa do
                       patch opcional "fileio" do motor, veja "Patches do
                       motor"; sem ele, um aviso diz que o log nao esta
                       disponivel). Maximo 5000 linhas por sessao, cada uma com

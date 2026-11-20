@@ -185,11 +185,39 @@ def ShowProblem(sText):
 		pass
 
 
+def DebugLevel():
+	# Config Debug as a number: 0 = off, 1 = log file, 2 = log file and banners.
+	try:
+		iLevel = int(GetConfigValue("Debug", 0))
+	except:
+		return 0
+	if iLevel < 0:
+		return 0
+	return iLevel
+
+
+def ShowNotice(sText, fY=0.2, fDur=3.0):
+	# Short line on screen for the player (always shown, whatever Debug says).
+	try:
+		import MissionLib
+		MissionLib.TextBanner(None, App.TGString(sText), 0.0, fY, fDur, 12, 1, 0)
+	except:
+		pass
+
+
+def DebugNotice(sText, fY=0.25, fDur=4.0):
+	# Debug = 2 only: a line on screen (callers log it separately).
+	if DebugLevel() < 2:
+		return
+	ShowNotice(sText, fY, fDur)
+
+
 def ModuleError(lEntry, sWhere):
 	lEntry[3] = lEntry[3] + 1
 	try:
 		eType, eValue = sys.exc_info()[:2]
 		Log("Spaceframe", "ERROR in " + lEntry[0] + "." + sWhere + ": " + str(eType) + " - " + str(eValue))
+		DebugNotice("Spaceframe ERROR in " + lEntry[0] + "." + sWhere, 0.3)
 	except:
 		pass
 	if (lEntry[3] >= MAX_ERRORS) and lEntry[2]:

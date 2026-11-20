@@ -215,6 +215,15 @@ def SetEnabled(iOn):
 
 def Toggle():
 	SetEnabled(not IsEnabled())
+	# Player feedback (key and menu button only, not the battle start).
+	sState = "OFF"
+	if IsEnabled():
+		sState = "ON"
+	try:
+		if g_pCore != None:
+			g_pCore.ShowNotice("Auto Fire " + sState, 0.12, 2.5)
+	except:
+		pass
 
 
 ###############################################################################
@@ -1037,6 +1046,10 @@ def PlanPhaserStep(pShip, pSystem, pTarget, lTargets, eGroup):
 		if g_dPlanNote.get(eGroup) != sText:
 			g_dPlanNote[eGroup] = sText
 			g_pCore.Log(NAME, sText)
+			try:
+				g_pCore.DebugNotice("AutoFire " + sText, 0.22, 3.0)
+			except:
+				pass
 	return (pHead, lIDs, 1, 0)
 
 
@@ -1077,6 +1090,10 @@ def NoteArcPlan(pShip, pSystem, eGroup, pTarget, lSec, bHeadSec):
 		if g_dPlanNote.get(eGroup) != sText:
 			g_dPlanNote[eGroup] = sText
 			g_pCore.Log(NAME, sText)
+			try:
+				g_pCore.DebugNotice("AutoFire " + sText, 0.22, 3.0)
+			except:
+				pass
 
 
 ###############################################################################

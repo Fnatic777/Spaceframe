@@ -470,7 +470,8 @@ def test_torpedo_group_gets_only_reachable_secondaries():
 
 
 def state_scene(iDebug):
-	App, ST, core, ship = setup(Debug=iDebug)
+	# banners need Debug 2
+	App, ST, core, ship = setup(Debug=iDebug * 2)
 	lShown = []
 	# the rare "Secondary target: group ..." banner is not part of the trace display
 	sys.modules["MissionLib"].TextBanner = lambda *a: (a[4] > 5.0) and lShown.append((a[1].s, a[3], a[4]))

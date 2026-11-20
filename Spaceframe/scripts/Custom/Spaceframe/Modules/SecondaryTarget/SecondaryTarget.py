@@ -53,6 +53,7 @@ g_pMenu = None		# the tactical menu holding the button
 # Settings read once by LoadConfig() at Start (the hot path never asks Config).
 # Initial values = the defaults, so code run before Start behaves the same.
 g_bDebug = 0
+g_iDebug = 0	# Debug level: 0 off, 1 log, 2 log and banners
 g_sCycleState = ""	# Debug = 1 only: the last outcome logged by Cycle
 g_iWeapons = 7
 g_fInterval = 0.2
@@ -95,7 +96,7 @@ def GetConfig():
 
 def LoadConfig():
 	# Reads every setting once; edits apply from the next battle (Start).
-	global g_bDebug, g_iWeapons, g_fInterval, g_iMaxCandidates
+	global g_bDebug, g_iDebug, g_iWeapons, g_fInterval, g_iMaxCandidates
 	global g_fSecondaryRange, g_fTorpedoRange, g_iStartEnabled
 	pConfig = GetConfig()
 	g_iStartEnabled = int(getattr(pConfig, "StartEnabled", 1))
@@ -110,12 +111,17 @@ def LoadConfig():
 	g_fTorpedoRange = float(getattr(pConfig, "SecondaryTorpedoRange", 30))
 	if g_fTorpedoRange < 0.0:
 		g_fTorpedoRange = 0.0
-	g_bDebug = int(getattr(pConfig, "Debug", 0))
-	if (not g_bDebug) and (g_pCore != None):
+	g_iDebug = int(getattr(pConfig, "Debug", 0))
+	if (g_iDebug < 2) and (g_pCore != None):
 		try:
-			g_bDebug = g_pCore.GetConfigValue("Debug", 0)
+			iCore = int(g_pCore.GetConfigValue("Debug", 0))
+			if iCore > g_iDebug:
+				g_iDebug = iCore
 		except:
-			g_bDebug = 0
+			pass
+	g_bDebug = 0
+	if g_iDebug > 0:
+		g_bDebug = 1
 
 
 def GetPlayer():
@@ -644,8 +650,8 @@ def DebugPrint(sText):
 
 
 def DebugBanner(sText, fY=0.2, fDur=4.0):
-	# Debug = 1 only: a short line on screen (the console is not enough).
-	if not g_bDebug:
+	# Debug = 2 only: a short line on screen (the console is not enough).
+	if g_iDebug < 2:
 		return
 	try:
 		import MissionLib
@@ -1397,6 +1403,15 @@ def SetEnabled(iOn):
 
 def Toggle():
 	SetEnabled(not IsEnabled())
+	# Player feedback (key and menu button only, not the battle start).
+	sState = "OFF"
+	if IsEnabled():
+		sState = "ON"
+	try:
+		if g_pCore != None:
+			g_pCore.ShowNotice("Secondary Target " + sState, 0.16, 2.5)
+	except:
+		pass
 
 
 def GetKeyCode():
