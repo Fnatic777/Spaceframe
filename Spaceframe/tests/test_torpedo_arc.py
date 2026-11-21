@@ -107,7 +107,7 @@ def test_depth_unavailable_is_none():
 
 # --- AutoFire: TorpedoRule 3 --------------------------------------------------
 def rule3(**kw):
-	dCfg = {"TorpedoRule": 3, "TapFire": 0, "TorpedoMinSolution": 70, "TorpedoArcPercentFar": 50,
+	dCfg = {"TorpedoRule": 1, "TapFire": 0, "TorpedoArcPercentFar": 50,
 		"TorpedoArcPercentNear": 90, "TorpedoArcFarDistance": 30, "TorpedoArcNearDistance": 5,
 		"TorpedoArcHysteresis": 10}
 	for k in kw:
@@ -138,7 +138,7 @@ def best(AF, ship, torps, target):
 def test_config_read():
 	App, AF, core, ship, target, torps, S = rule3(TorpedoArcPercentFar=40, TorpedoArcPercentNear=80,
 		TorpedoArcFarDistance=20, TorpedoArcNearDistance=2, TorpedoArcHysteresis=5)
-	assert AF.g_iTorpedoRule == 3 and AF.g_fTorpArcFar == 40.0 and AF.g_fTorpArcNear == 80.0
+	assert AF.g_iTorpedoRule == 1 and AF.g_fTorpArcFar == 40.0 and AF.g_fTorpArcNear == 80.0
 	assert AF.g_fTorpArcHysteresis == 5.0
 	assert abs(AF.g_fTorpArcFarDistance - 20 / 0.175) < 1e-6
 	assert abs(AF.g_fTorpArcNearDistance - 2 / 0.175) < 1e-6
@@ -165,9 +165,6 @@ def test_allowed_uses_the_torpedo_band():
 def test_tube_within_percent_fires_and_score_is_depth():
 	App, AF, core, ship, target, torps, S = rule3()
 
-	def boom(*a):
-		raise AssertionError("Solution.Score must not be used by rule 3")
-	S.Score = boom
 	place(target, 0.4, 40.0)
 	assert AF.TorpedoTarget(ship, torps, [target], GROUP) == target
 	assert abs(AF.g_dScore[GROUP] - 60.0) < 0.5
@@ -175,14 +172,13 @@ def test_tube_within_percent_fires_and_score_is_depth():
 
 def test_tube_outside_percent_holds_fire_though_in_arc():
 	App, AF, core, ship, target, torps, S = rule3()
-	S.Score = lambda *a: 90.0
 	place(target, 0.6, 40.0)
 	assert torps.lChildren[0].IsInArc(target.GetWorldLocation())
 	assert AF.TorpedoTarget(ship, torps, [target], GROUP) == None
 
 
-def test_rule_3_ignores_torpedo_min_solution():
-	# A score of 15 is below TorpedoMinSolution 70: rule 3 only needs >= 1.
+def test_low_score_still_fires():
+	# A score of 15: the arc rule only needs >= 1.
 	App, AF, core, ship, target, torps, S = rule3()
 	place(target, 0.85, 3.0)
 	assert AF.TorpedoTarget(ship, torps, [target], GROUP) == target
@@ -281,19 +277,9 @@ def test_settle_keeps_listed_ids_only():
 	assert AF.g_dArcReady == {}
 
 
-def test_rules_1_and_2_use_score_and_no_arc_state():
-	for iRule in (1, 2):
-		App, AF, core, ship, target, torps, S = rule3(TorpedoRule=iRule)
-		lCalls = []
-
-		def score(*a):
-			lCalls.append(1)
-			return 80.0
-		S.Score = score
-		target.pos = P(10.0, 0.0, 0.0)
-		assert AF.BestTorpedoScore(ship, torps, target) == 80.0
-		assert len(lCalls) == 1
-		assert AF.g_dArcReady == {}
+def test_legacy_rule_3_is_rule_2():
+	App, AF, core, ship, target, torps, S = rule3(TorpedoRule=3)
+	assert AF.g_iTorpedoRule == 2
 
 
 def run():

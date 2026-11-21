@@ -130,6 +130,7 @@ def setup(iTech=-1, **kw):
 	App._player[0] = ship
 	ST.g_pCore = core
 	AF.g_pCore = core
+	AF.ArcRuleOn = lambda sKind: 0	# arc rule is always on in AutoFire now: these tests cover the non-arc path; arc tests set their own stubs
 	ST.LoadConfig()
 	ST.g_iOn = 1	# the module is switched ON (the cycle does nothing otherwise)
 	return App, ST, core, ship
@@ -1232,7 +1233,7 @@ def arc_rule(ST, sKind, fnReaches=None):
 	AF = ST.GetAutoFire()
 	AF.ArcRuleOn = lambda s: s == sKind
 	if fnReaches == None:
-		fnReaches = lambda pShip, pSys, pWeapon, pCand, s: 1
+		fnReaches = lambda pShip, pSys, pWeapon, pCand, s, bSec=0: 1
 	AF.ArcReaches = fnReaches
 	return AF
 
@@ -1286,11 +1287,11 @@ def test_pulse_arc_rule_wanted_needs_reach_and_arc_percent():
 	main, b, c, pSys = pulse_scene(core, ship)
 	arc_rule(ST, "pulse")
 	assert ST.WantedTargets(ship, pSys, main, "pulse") == [4]	# B is not in the aft arc
-	arc_rule(ST, "pulse", lambda pShip, pSys_, pWeapon, pCand, s: 0)
+	arc_rule(ST, "pulse", lambda pShip, pSys_, pWeapon, pCand, s, bSec=0: 0)
 	assert ST.WantedTargets(ship, pSys, main, "pulse") == []
 	# ArcReaches is asked with the kind and the candidate
 	lAsked = []
-	arc_rule(ST, "pulse", lambda pShip, pSys_, pWeapon, pCand, s: lAsked.append((pCand.GetObjID(), s)) or 1)
+	arc_rule(ST, "pulse", lambda pShip, pSys_, pWeapon, pCand, s, bSec=0: lAsked.append((pCand.GetObjID(), s)) or 1)
 	ST.WantedTargets(ship, pSys, main, "pulse")
 	assert lAsked == [(4, "pulse")]
 
@@ -1298,7 +1299,7 @@ def test_pulse_arc_rule_wanted_needs_reach_and_arc_percent():
 def test_pulse_arc_rule_debug_skip_line_on_change_only():
 	App, ST, core, ship = setup(Debug=1)
 	main, b, c, pSys = pulse_scene(core, ship)
-	arc_rule(ST, "pulse", lambda pShip, pSys_, pWeapon, pCand, s: 0)
+	arc_rule(ST, "pulse", lambda pShip, pSys_, pWeapon, pCand, s, bSec=0: 0)
 	ST.WantedTargets(ship, pSys, main, "pulse")
 	ST.WantedTargets(ship, pSys, main, "pulse")
 	assert [s for s in ST.g_lTrace if "ARC-SKIP pulse 4" in s] != []
@@ -1322,7 +1323,7 @@ def test_torpedo_arc_rule_wanted_and_nosec():
 	ST, ship, pSys, CLOCK, main = rearm_scene()
 	assert ST.WantedTargets(ship, pSys, main, "torpedo") == [4]
 	assert ST.RearmReason(ship, pSys, main, 2, (ship.GetObjID(), 2))[0] == ""
-	arc_rule(ST, "torpedo", lambda pShip, pSys_, pWeapon, pCand, s: 0)
+	arc_rule(ST, "torpedo", lambda pShip, pSys_, pWeapon, pCand, s, bSec=0: 0)
 	assert ST.WantedTargets(ship, pSys, main, "torpedo") == []
 	assert ST.RearmReason(ship, pSys, main, 2, (ship.GetObjID(), 2))[0] == "nosec"
 	arc_rule(ST, "torpedo")

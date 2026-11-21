@@ -154,39 +154,45 @@ has "AutoFire" in Ships.py.
   full-damage range, in arc, and charged to at least PhaserMinCharge
   (0 = off for either check).
 - Torpedoes: the target is predicted where it will be when the torpedo
-  arrives (the same prediction the game's AI uses). TorpedoRule 1 (firing
-  solution): a 0 to 100 score from the tube's aim error, what the guidance
-  can correct (GuidanceStrength, GuidanceLimit), how far the target can
-  dodge (TargetEvasion) and the target's size (TargetSize); a tube fires at
-  TorpedoMinSolution or more, and never further off than TubeMaxAngle
-  degrees. TorpedoRule 2 (firing cone, like the game's AI): a tube fires
-  when the predicted target is within ConeAngleFar degrees (at
-  ConeFarDistance km and beyond), opening to ConeAngleNear (at
-  ConeNearDistance km and closer). TorpedoRule 3 (arc percent): a tube fires
-  when where the target will be is inside its fixed 30 degree cone by a share
-  that depends on the distance: TorpedoArcPercentFar % of the cone (from its
-  centre) at TorpedoArcFarDistance km and beyond, opening to
-  TorpedoArcPercentNear % at TorpedoArcNearDistance km and closer; once
-  firing it keeps firing until the point is TorpedoArcHysteresis points past
-  that (0 = off: ready only while inside the percent). TorpedoReserve
-  torpedoes are kept back.
-- Spread: the ship's largest spread for solutions of SpreadMinSolution or
-  more and at SpreadMinDistance km or further (spread torpedoes need room
-  to turn); Single otherwise. Your own spread comes back when Auto Fire is
-  switched off or when you fire torpedoes by hand.
-- Pulse weapons (disruptors, pulse cannons), when charged: PulseRule 1
-  (firing solution): they aim themselves inside their arc, so only the
-  flight counts (target evasion, projectile lifetime); they fire at
-  PulseMinSolution or more. PulseRule 2: a firing cone around where each
-  weapon points, with its own settings (PulseConeAngleFar/Near,
-  PulseConeFarDistance/NearDistance), usually wider than the torpedoes'.
-  PulseRule 3: fires when
-  where the target will be is inside the weapon's firing arc by a share of
-  the arc that depends on the distance: PulseArcPercentFar % of the arc
-  (from its centre) at PulseArcFarDistance km and beyond, opening to
-  PulseArcPercentNear % at PulseArcNearDistance km and closer. Once firing
-  it keeps firing until the point is PulseArcHysteresis points past that
-  (0 = off: ready only while inside the percent).
+  arrives (the same prediction the game's AI uses). TorpedoRule 1 (arc
+  percent): a tube fires when where the target will be is inside its fixed
+  30 degree cone by a share that depends on the distance:
+  TorpedoArcPercentFar % of the cone (from its centre) at
+  TorpedoArcFarDistance km and beyond, opening to TorpedoArcPercentNear % at
+  TorpedoArcNearDistance km and closer; once firing it keeps firing until the
+  point is TorpedoArcHysteresis points past that (0 = off: ready only while
+  inside the percent). TorpedoRule 2 (default): rule 1 plus a flight-time
+  filter: a tube is also held while distance / torpedo speed is longer than
+  TorpedoFlightTimeFar seconds (at TorpedoArcFarDistance km and beyond) to
+  TorpedoFlightTimeNear seconds (at TorpedoArcNearDistance km and closer),
+  in proportion in between; 0 = no limit (off if either value is 0); an
+  unknown speed never blocks. Any other TorpedoRule value (the old 3
+  included) counts as 2; the old firing-solution and firing-cone rules, and
+  their settings (TorpedoMinSolution, ConeAngle*, Cone*Distance, TargetEvasion,
+  GuidanceStrength, GuidanceLimit, TubeMaxAngle, TargetSize), are gone.
+  TorpedoReserve torpedoes are kept back. Secondary targets (Secondary Target
+  ON) have their own band: TorpedoArcPercentFarSecondary,
+  TorpedoArcPercentNearSecondary, TorpedoArcFarDistanceSecondary,
+  TorpedoArcNearDistanceSecondary, and their own flight-time limits
+  TorpedoFlightTimeFarSecondary / TorpedoFlightTimeNearSecondary (and the
+  same PulseArc...Secondary / PulseFlightTime...Secondary for pulse
+  weapons); a setting left out falls back to the main one, and the
+  hysteresis stays shared.
+- Spread: the ship's largest spread for arc scores of SpreadMinSolution or
+  more (100 = target dead centre of the tube's cone) and at SpreadMinDistance
+  km or further (spread torpedoes need room to turn); Single otherwise. Your
+  own spread comes back when Auto Fire is switched off or when you fire
+  torpedoes by hand.
+- Pulse weapons (disruptors, pulse cannons), when charged: PulseRule 1 (arc
+  percent): fires when where the target will be is inside the weapon's firing
+  arc by a share of the arc that depends on the distance: PulseArcPercentFar
+  % of the arc (from its centre) at PulseArcFarDistance km and beyond,
+  opening to PulseArcPercentNear % at PulseArcNearDistance km and closer.
+  Once firing it keeps firing until the point is PulseArcHysteresis points
+  past that (0 = off: ready only while inside the percent). PulseRule 2
+  (default): rule 1 plus the flight-time filter with PulseFlightTimeFar /
+  PulseFlightTimeNear (same meaning as for torpedoes, the pulse weapon's
+  launch speed). Any other value counts as 2.
   With Secondary Target ON it also picks the secondary targets of the free
   weapons, and fires at a secondary alone when no weapon has a shot at the
   main target.
@@ -264,10 +270,11 @@ Only for the player's ship, and only if it has "SecondaryTarget" in Ships.py.
   adds the secondaries as above. If no ready bank reaches the main target,
   Auto Fire starts the group at a secondary a ready bank reaches (see
   SecondaryPhasers in the Auto Fire section; candidates as above).
-- With PulseRule 3 / TorpedoRule 3 (Auto Fire Config) a secondary is added
-  only if a weapon that does not reach the main target has it inside the
-  allowed arc percent; with manual fire your main target is never restricted.
-  Pulse weapons under Auto Fire with PulseRule 3 are handled by Auto Fire.
+- With the Auto Fire arc rules (PulseRule / TorpedoRule 1 or 2) a secondary
+  is added only if a weapon that does not reach the main target has it inside
+  the allowed arc percent (and, with rule 2, inside the secondary flight-time
+  limit); with manual fire your main target is never restricted.
+  Pulse weapons under Auto Fire are handled by Auto Fire.
 - The optional engine patches (one bank per target, log file) are described
   in "Engine patches" below. The module works without them (several banks may
   then shoot the same target, and there is no log file).
@@ -496,40 +503,47 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   alcance de dano maximo, en el arco, y con carga de al menos
   PhaserMinCharge (0 = desactivado en ambos controles).
 - Torpedos: el objetivo se predice donde estara cuando llegue el torpedo
-  (la misma prediccion de la IA del juego). TorpedoRule 1 (solucion de
-  tiro): una nota de 0 a 100 a partir del error de punteria del tubo, lo
-  que el guiado puede corregir (GuidanceStrength, GuidanceLimit), cuanto
-  puede esquivar el objetivo (TargetEvasion) y su tamano (TargetSize); un
-  tubo dispara con TorpedoMinSolution o mas, y nunca a mas de TubeMaxAngle
-  grados. TorpedoRule 2 (cono de tiro, como la IA del juego): un tubo
-  dispara cuando el objetivo previsto esta dentro de ConeAngleFar grados (a
-  ConeFarDistance km o mas), abriendose hasta ConeAngleNear (a
-  ConeNearDistance km o menos). TorpedoRule 3 (porcentaje de arco): un tubo
-  dispara cuando donde estara el objetivo esta dentro de su cono fijo de 30
-  grados en una parte que depende de la distancia: TorpedoArcPercentFar % del
-  cono (desde su centro) a TorpedoArcFarDistance km o mas, abriendose a
-  TorpedoArcPercentNear % a TorpedoArcNearDistance km o menos; una vez
-  disparando, sigue hasta que el punto se pase TorpedoArcHysteresis puntos.
-  (0 = apagado: listo solo dentro del porcentaje). Se guardan
-  TorpedoReserve torpedos.
-- Spread: el mayor spread de la nave para soluciones de SpreadMinSolution o
-  mas y a SpreadMinDistance km o mas (los torpedos en spread necesitan
-  espacio para girar); Single en otro caso. Su propio spread vuelve al
-  apagar el Auto Fire o al disparar torpedos a mano.
+  (la misma prediccion de la IA del juego). TorpedoRule 1 (porcentaje de
+  arco): un tubo dispara cuando donde estara el objetivo esta dentro de su
+  cono fijo de 30 grados en una parte que depende de la distancia:
+  TorpedoArcPercentFar % del cono (desde su centro) a TorpedoArcFarDistance
+  km o mas, abriendose a TorpedoArcPercentNear % a TorpedoArcNearDistance km
+  o menos; una vez disparando, sigue hasta que el punto se pase
+  TorpedoArcHysteresis puntos (0 = apagado: listo solo dentro del
+  porcentaje). TorpedoRule 2 (por defecto): la regla 1 mas un filtro de
+  tiempo de vuelo: un tubo tambien espera mientras distancia / velocidad del
+  torpedo supere TorpedoFlightTimeFar segundos (a TorpedoArcFarDistance km o
+  mas) hasta TorpedoFlightTimeNear segundos (a TorpedoArcNearDistance km o
+  menos), proporcional entre medio; 0 = sin limite (apagado si cualquiera de
+  los dos valores es 0); una velocidad desconocida nunca bloquea. Cualquier
+  otro valor de TorpedoRule (el antiguo 3 incluido) cuenta como 2; las
+  antiguas reglas de solucion de tiro y de cono de tiro, y sus ajustes
+  (TorpedoMinSolution, ConeAngle*, Cone*Distance, TargetEvasion,
+  GuidanceStrength, GuidanceLimit, TubeMaxAngle, TargetSize), ya no existen.
+  Se guardan TorpedoReserve torpedos. Los objetivos secundarios (Secondary
+  Target ON) tienen su propia banda: TorpedoArcPercentFarSecondary,
+  TorpedoArcPercentNearSecondary, TorpedoArcFarDistanceSecondary,
+  TorpedoArcNearDistanceSecondary, y sus propios limites de tiempo de vuelo
+  TorpedoFlightTimeFarSecondary / TorpedoFlightTimeNearSecondary (y los
+  mismos PulseArc...Secondary / PulseFlightTime...Secondary para armas de
+  pulso); un ajuste omitido toma el principal y la histeresis sigue
+  compartida.
+- Spread: el mayor spread de la nave para notas de arco de SpreadMinSolution
+  o mas (100 = objetivo en el centro del cono del tubo) y a SpreadMinDistance
+  km o mas (los torpedos en spread necesitan espacio para girar); Single en
+  otro caso. Su propio spread vuelve al apagar el Auto Fire o al disparar
+  torpedos a mano.
 - Armas de pulso (disruptores, canones de pulso), cargadas: PulseRule 1
-  (solucion de tiro): apuntan solas dentro de su arco, asi que solo cuenta
-  el vuelo (esquiva del objetivo, duracion del proyectil); disparan con
-  PulseMinSolution o mas. PulseRule 2: un cono de tiro alrededor de donde
-  apunta cada arma, con su propia configuracion (PulseConeAngleFar/Near,
-  PulseConeFarDistance/NearDistance), normalmente mas ancho que el de los
-  torpedos.
-  PulseRule 3: dispara
-  cuando donde estara el objetivo esta dentro del arco de tiro del arma en
-  una parte del arco que depende de la distancia: PulseArcPercentFar % del
-  arco (desde su centro) a PulseArcFarDistance km o mas, abriendose a
-  PulseArcPercentNear % a PulseArcNearDistance km o menos. Una vez
-  disparando, sigue hasta que el punto se pase PulseArcHysteresis puntos
-  (0 = apagado: listo solo dentro del porcentaje).
+  (porcentaje de arco): dispara cuando donde estara el objetivo esta dentro
+  del arco de tiro del arma en una parte del arco que depende de la
+  distancia: PulseArcPercentFar % del arco (desde su centro) a
+  PulseArcFarDistance km o mas, abriendose a PulseArcPercentNear % a
+  PulseArcNearDistance km o menos. Una vez disparando, sigue hasta que el
+  punto se pase PulseArcHysteresis puntos (0 = apagado: listo solo dentro
+  del porcentaje). PulseRule 2 (por defecto): la regla 1 mas el filtro de
+  tiempo de vuelo con PulseFlightTimeFar / PulseFlightTimeNear (mismo
+  significado que en torpedos, con la velocidad de lanzamiento del arma de
+  pulso). Cualquier otro valor cuenta como 2.
   Con el Secondary Target ENCENDIDO tambien elige los objetivos secundarios
   de las armas libres, y dispara a un secundario solo cuando ningun arma
   tiene tiro al objetivo principal.
@@ -611,11 +625,12 @@ las armas que lo alcanzan. Solo para la nave del jugador, y solo si tiene
   modulo anade los secundarios como arriba. Si ningun banco listo alcanza el
   principal, el Auto Fire inicia el grupo en un secundario que un banco listo
   alcanza (vea SecondaryPhasers en la seccion del Auto Fire).
-- Con PulseRule 3 / TorpedoRule 3 (Config del Auto Fire) un secundario solo
-  se agrega si un arma que no alcanza el objetivo principal lo tiene dentro
-  del porcentaje de arco permitido; con disparo manual su objetivo principal
-  nunca se restringe. Las armas de pulso bajo Auto Fire con PulseRule 3 las
-  maneja el Auto Fire.
+- Con las reglas de arco del Auto Fire (PulseRule / TorpedoRule 1 o 2) un
+  secundario solo se agrega si un arma que no alcanza el objetivo principal
+  lo tiene dentro del porcentaje de arco permitido (y, con la regla 2, dentro
+  del limite secundario de tiempo de vuelo); con disparo manual su objetivo
+  principal nunca se restringe. Las armas de pulso bajo Auto Fire las maneja
+  el Auto Fire.
 - Los parches opcionales del motor (un banco por objetivo, archivo de log) se
   describen en "Parches del motor" mas abajo. El modulo funciona sin ellos
   (varios bancos pueden disparar al mismo objetivo, y no hay archivo de log).
@@ -843,40 +858,47 @@ tiver "AutoFire" no Ships.py.
   dano maximo, no arco, e com carga de pelo menos PhaserMinCharge
   (0 = desligado em ambos os controles).
 - Torpedos: o alvo e previsto onde estara quando o torpedo chegar (a mesma
-  previsao da IA do jogo). TorpedoRule 1 (solucao de tiro): uma nota de 0 a
-  100 a partir do erro de mira do tubo, do que o guiamento consegue
-  corrigir (GuidanceStrength, GuidanceLimit), do quanto o alvo pode desviar
-  (TargetEvasion) e do tamanho dele (TargetSize); um tubo dispara com
-  TorpedoMinSolution ou mais, e nunca a mais de TubeMaxAngle graus.
-  TorpedoRule 2 (cone de tiro, como a IA do jogo): um tubo dispara quando o
-  alvo previsto esta dentro de ConeAngleFar graus (a ConeFarDistance km ou
-  mais), abrindo ate ConeAngleNear (a ConeNearDistance km ou menos).
-  TorpedoRule 3 (porcentagem do arco): um tubo dispara quando onde o alvo vai
-  estar fica dentro do cone fixo de 30 graus dele numa parte que depende da
-  distancia: TorpedoArcPercentFar % do cone (a partir do centro) a
-  TorpedoArcFarDistance km ou mais, abrindo para TorpedoArcPercentNear % a
-  TorpedoArcNearDistance km ou menos; depois de comecar a disparar, continua
-  ate o ponto passar TorpedoArcHysteresis pontos (0 = desligado: pronto
-  so dentro da porcentagem). Ficam guardados
-  TorpedoReserve torpedos.
-- Spread: o maior spread da nave para solucoes de SpreadMinSolution ou mais
-  e a SpreadMinDistance km ou mais (torpedos em spread precisam de espaco
-  para virar); Single nos outros casos. O seu spread volta ao desligar o
-  Auto Fire ou ao disparar torpedos na mao.
+  previsao da IA do jogo). TorpedoRule 1 (porcentagem do arco): um tubo
+  dispara quando onde o alvo vai estar fica dentro do cone fixo de 30 graus
+  dele numa parte que depende da distancia: TorpedoArcPercentFar % do cone (a
+  partir do centro) a TorpedoArcFarDistance km ou mais, abrindo para
+  TorpedoArcPercentNear % a TorpedoArcNearDistance km ou menos; depois de
+  comecar a disparar, continua ate o ponto passar TorpedoArcHysteresis
+  pontos (0 = desligado: pronto so dentro da porcentagem). TorpedoRule 2
+  (padrao): a regra 1 mais um filtro de tempo de voo: um tubo tambem espera
+  enquanto distancia / velocidade do torpedo passar de TorpedoFlightTimeFar
+  segundos (a TorpedoArcFarDistance km ou mais) ate TorpedoFlightTimeNear
+  segundos (a TorpedoArcNearDistance km ou menos), proporcional no meio;
+  0 = sem limite (desligado se qualquer um dos dois valores for 0); uma
+  velocidade desconhecida nunca bloqueia. Qualquer outro valor de
+  TorpedoRule (o antigo 3 incluido) conta como 2; as antigas regras de
+  solucao de tiro e de cone de tiro, e os ajustes delas (TorpedoMinSolution,
+  ConeAngle*, Cone*Distance, TargetEvasion, GuidanceStrength, GuidanceLimit,
+  TubeMaxAngle, TargetSize), foram removidas. Ficam guardados
+  TorpedoReserve torpedos. Os alvos secundarios (Secondary Target ON) tem
+  a sua propria faixa: TorpedoArcPercentFarSecondary,
+  TorpedoArcPercentNearSecondary, TorpedoArcFarDistanceSecondary,
+  TorpedoArcNearDistanceSecondary, e os seus proprios limites de tempo de voo
+  TorpedoFlightTimeFarSecondary / TorpedoFlightTimeNearSecondary (e os
+  mesmos PulseArc...Secondary / PulseFlightTime...Secondary para armas de
+  pulso); um ajuste omitido usa o principal, e a histerese continua
+  compartilhada.
+- Spread: o maior spread da nave para notas de arco de SpreadMinSolution ou
+  mais (100 = alvo no centro do cone do tubo) e a SpreadMinDistance km ou
+  mais (torpedos em spread precisam de espaco para virar); Single nos outros
+  casos. O seu spread volta ao desligar o Auto Fire ou ao disparar torpedos
+  na mao.
 - Armas de pulso (disruptores, canhoes de pulso), carregadas: PulseRule 1
-  (solucao de tiro): miram sozinhas dentro do arco, entao so conta o voo
-  (desvio do alvo, duracao do projetil); disparam com PulseMinSolution ou
-  mais. PulseRule 2: um cone de tiro em volta de para onde cada arma aponta,
-  com ajustes proprios (PulseConeAngleFar/Near,
-  PulseConeFarDistance/NearDistance), normalmente mais largo que o dos
-  torpedos.
-  PulseRule 3: dispara
-  quando onde o alvo vai estar fica dentro do arco de tiro da arma numa
-  parte do arco que depende da distancia: PulseArcPercentFar % do arco (a
-  partir do centro) a PulseArcFarDistance km ou mais, abrindo para
-  PulseArcPercentNear % a PulseArcNearDistance km ou menos. Depois de
-  comecar a disparar, continua ate o ponto passar PulseArcHysteresis pontos
-  (0 = desligado: pronto so dentro da porcentagem).
+  (porcentagem do arco): dispara quando onde o alvo vai estar fica dentro do
+  arco de tiro da arma numa parte do arco que depende da distancia:
+  PulseArcPercentFar % do arco (a partir do centro) a PulseArcFarDistance km
+  ou mais, abrindo para PulseArcPercentNear % a PulseArcNearDistance km ou
+  menos. Depois de comecar a disparar, continua ate o ponto passar
+  PulseArcHysteresis pontos (0 = desligado: pronto so dentro da
+  porcentagem). PulseRule 2 (padrao): a regra 1 mais o filtro de tempo de
+  voo com PulseFlightTimeFar / PulseFlightTimeNear (mesmo significado dos
+  torpedos, com a velocidade de lancamento da arma de pulso). Qualquer outro
+  valor conta como 2.
   Com o Secondary Target LIGADO tambem escolhe os alvos secundarios das armas
   livres, e atira em um secundario sozinho quando nenhuma arma tem tiro no
   alvo principal.
@@ -955,11 +977,12 @@ que o alcancam. So para a nave do jogador, e so se ela tiver
   modulo adiciona os secundarios como acima. Se nenhum banco pronto alcanca o
   principal, o Auto Fire inicia o grupo em um secundario que um banco pronto
   alcanca (veja SecondaryPhasers na secao do Auto Fire).
-- Com PulseRule 3 / TorpedoRule 3 (Config do Auto Fire) um secundario so e
-  adicionado se uma arma que nao alcanca o alvo principal o tem dentro da
-  porcentagem de arco permitida; com disparo manual o seu alvo principal
-  nunca e restringido. As armas de pulso sob Auto Fire com PulseRule 3 sao
-  tratadas pelo Auto Fire.
+- Com as regras de arco do Auto Fire (PulseRule / TorpedoRule 1 ou 2) um
+  secundario so e adicionado se uma arma que nao alcanca o alvo principal o
+  tem dentro da porcentagem de arco permitida (e, com a regra 2, dentro do
+  limite secundario de tempo de voo); com disparo manual o seu alvo principal
+  nunca e restringido. As armas de pulso sob Auto Fire sao tratadas pelo
+  Auto Fire.
 - Os patches opcionais do motor (um banco por alvo, arquivo de log) estao
   descritos em "Patches do motor" abaixo. O modulo funciona sem eles (varios
   bancos podem atirar no mesmo alvo, e nao ha arquivo de log).

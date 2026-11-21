@@ -14,14 +14,14 @@
 #	- While ON the single-fire restriction of the ship's phasers is lifted
 #	  (pulse and torpedo groups keep their own setting); the original values are
 #	  restored when it goes OFF.
-#	- Torpedoes under Auto Fire, and pulse weapons under Auto Fire with
-#	  PulseRule 3, are handled by Auto Fire (this module only says which
+#	- Torpedoes and pulse weapons under Auto Fire are handled by Auto Fire
+#	  (this module only says which
 #	  enemies may be secondaries: TorpedoCandidates, PulseCandidates).
 #	- Phasers: secondaries are added here while the group fires at the main
 #	  target; when no bank reaches the main target, Auto Fire starts the group
 #	  at a secondary itself (PhaserCandidates).
-#	- With the arc-percent rule (Auto Fire's PulseRule / TorpedoRule 3, pulse
-#	  or torpedo), only secondaries a free weapon reaches inside the allowed
+#	- With the arc-percent rule (Auto Fire's PulseRule / TorpedoRule 1 or 2,
+#	  pulse or torpedo; rule 2 adds the flight-time filter), only secondaries a free weapon reaches inside the allowed
 #	  arc percent are added; the main target is never restricted.
 #	Settings: Modules\SecondaryTarget\Config.py
 ###############################################################################
@@ -443,7 +443,7 @@ def TorpedoCandidates(pShip, pSystem, pMain):
 
 
 def PulseCandidates(pShip, pSystem, pMain):
-	# Public, used by Auto Fire (PulseRule 3): IDs of the enemies that may be
+	# Public, used by Auto Fire: IDs of the enemies that may be
 	# pulse secondaries now (MaxCandidates, no range limit).
 	return KindCandidates(pShip, pSystem, pMain, BIT_PULSE, "pulse")
 
@@ -473,8 +473,8 @@ def AutoFireOwns(eGroup, sKind="torpedo"):
 
 
 def ArcRule(sKind):
-	# 1 when Auto Fire's arc-percent rule is selected for this kind (PulseRule /
-	# TorpedoRule 3): then only secondaries a free weapon reaches inside the
+	# 1 when Auto Fire's arc-percent rule applies to this kind (always now,
+	# PulseRule / TorpedoRule 1 or 2): then only secondaries a free weapon reaches inside the
 	# allowed percent are added. 0 if Auto Fire is old or errors (today's way).
 	try:
 		pAF = GetAutoFire()
@@ -492,7 +492,7 @@ def SecReach(pShip, pSystem, pWeapon, pCandidate, sKind):
 	try:
 		if not Reaches(pWeapon, pCandidate.GetWorldLocation(), sKind, 0):
 			return 0
-		if GetAutoFire().ArcReaches(pShip, pSystem, pWeapon, pCandidate, sKind):
+		if GetAutoFire().ArcReaches(pShip, pSystem, pWeapon, pCandidate, sKind, 1):
 			return 1
 	except:
 		pass

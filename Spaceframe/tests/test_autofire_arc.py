@@ -1,4 +1,4 @@
-"""PulseRule 3 (arc percent): Solution.ArcDepth and the ready/hysteresis rule."""
+"""Pulse arc percent (PulseRule 1): Solution.ArcDepth and the ready/hysteresis rule."""
 import math
 import os
 import sys
@@ -104,9 +104,9 @@ def test_lead_point_leads_moving_target():
 	assert v0.y == 0.0
 
 
-# --- PulseRule 3 ------------------------------------------------------------
+# --- PulseRule 1 (arc percent only) ------------------------------------------------------------
 def rule3(**kw):
-	dCfg = {"PulseRule": 3, "TapFire": 0, "PulseArcPercentFar": 50, "PulseArcPercentNear": 90,
+	dCfg = {"PulseRule": 1, "TapFire": 0, "PulseArcPercentFar": 50, "PulseArcPercentNear": 90,
 		"PulseArcFarDistance": FAR_KM, "PulseArcNearDistance": NEAR_KM, "PulseArcHysteresis": 10}
 	for k in kw:
 		dCfg[k] = kw[k]
@@ -135,7 +135,7 @@ def score(AF, ship, pulse, w, target):
 def test_config_read():
 	App, AF, core, ship, target, pulse, S = rule3(PulseArcPercentFar=40, PulseArcPercentNear=80,
 		PulseArcFarDistance=20, PulseArcNearDistance=2, PulseArcHysteresis=5)
-	assert AF.g_iPulseRule == 3 and AF.g_fArcFar == 40.0 and AF.g_fArcNear == 80.0 and AF.g_fArcHysteresis == 5.0
+	assert AF.g_iPulseRule == 1 and AF.g_fArcFar == 40.0 and AF.g_fArcNear == 80.0 and AF.g_fArcHysteresis == 5.0
 	assert abs(AF.g_fArcFarDistance - 20 / 0.175) < 1e-6 and abs(AF.g_fArcNearDistance - 2 / 0.175) < 1e-6
 
 
@@ -352,14 +352,6 @@ def test_fire_cycle_fires_inside_stops_outside():
 	place(target, 0.65, 40.0)
 	AF.FireCycle()
 	assert pulse.calls[-1] == ("stop",)
-
-
-def test_rules_1_and_2_do_not_use_the_arc_state():
-	for iRule in (1, 2):
-		App, AF, core, ship, target, pulse, S = rule3(PulseRule=iRule)
-		target.pos = P(10.0, 0.0, 0.0)
-		AF.BestPulseScore(ship, pulse, target)
-		assert AF.g_dArcReady == {}
 
 
 def run():

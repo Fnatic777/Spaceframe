@@ -27,21 +27,23 @@ def setup(tap=1, rule=1, fwd=1, aft=1, secx=-20.0, scores=None, available=10, re
 	"""Player at the origin; main (7) ahead at x=10; secondary (8) at secx (default
 	behind). One forward tube (+x) and one aft tube (-x). Score stub: 0 outside the
 	tube's arc, else scores[target ID] (default 90)."""
-	App, AF, core, ship = base.setup(TorpedoMinSolution=70, TorpedoReserve=reserve, TapFire=tap,
+	App, AF, core, ship = base.setup(TorpedoReserve=reserve, TapFire=tap,
 		TorpedoRule=rule, SecondaryTorpedoes=secondary)
 	S = types.ModuleType("Custom.Spaceframe.Modules.AutoFire.Solution")
 	S.scores = scores or {}
 
-	def score(pShip, pTarget, vOffset, pTube, vDir, tInfo, *a):
+	def score(pShip, pSystem, pTube, pTarget, vOffset, sKind, bNeedReady, tFrame=None, tShot=None, bSecondary=0):
+		if bNeedReady and (not AF.WeaponReady(pTube, sKind)):
+			return 0.0
 		try:
 			if not pTube.IsInArc(pTarget.GetWorldLocation()):
 				return 0.0
 		except:
 			return 0.0
 		return S.scores.get(pTarget.GetObjID(), 90.0)
-	S.Score = score
+	AF.ArcScore = score
 	S.GetProjectileInfo = lambda w, s: (100.0, 0.1, 10.0, 0.0)
-	S.TORPEDO_RULE = rule
+	S.TubeFrame = lambda pShip, pTube: None
 	sys.modules["Custom.Spaceframe.Modules.AutoFire.Solution"] = S
 	sys.modules["Custom.Spaceframe.Modules.AutoFire"].Solution = S
 	main = mock_app.Ship("Main", 7)
@@ -121,15 +123,15 @@ def test_held_and_still_firing_no_replan():
 
 
 def test_poor_main_and_forward_tube_reaches_secondary_no_start():
-	# Main shot below the minimum, the secondary is ahead too: a ready forward
+	# No main shot (score 0), the secondary is ahead too: a ready forward
 	# tube would take it, so nothing is pressed.
-	AF, core, ship, main, sec, torps, fake, S = setup(secx=20.0, scores={7: 10.0})
+	AF, core, ship, main, sec, torps, fake, S = setup(secx=20.0, scores={7: 0.0})
 	AF.FireCycle()
 	assert started(torps) == []
 
 
-def test_secondary_below_min_not_added():
-	AF, core, ship, main, sec, torps, fake, S = setup(scores={8: 40.0})
+def test_secondary_score_zero_not_added():
+	AF, core, ship, main, sec, torps, fake, S = setup(scores={8: 0.0})
 	AF.FireCycle()
 	assert started(torps) == [7]
 
@@ -236,9 +238,9 @@ def test_phasers_untouched_by_plan():
 
 # --- TorpedoRule 3 (arc percent on the real, geometric tube cone) --------------
 def setup3(tap=1, fwd=1, aft=1, secx=-20.0, secy=0.0):
-	"""As setup(), but with TorpedoRule 3, the real Solution and geometric tubes:
+	"""As setup(), but with the real arc score, Solution and geometric tubes:
 	forward tube (+x), aft tube (-x); the secondary at (secx, secy, 0)."""
-	App, AF, core, ship = base.setup(TorpedoMinSolution=70, TapFire=tap, TorpedoRule=3,
+	App, AF, core, ship = base.setup(TapFire=tap, TorpedoRule=1,
 		SecondaryTorpedoes=1, TorpedoArcPercentFar=50, TorpedoArcPercentNear=90,
 		TorpedoArcFarDistance=30, TorpedoArcNearDistance=5, TorpedoArcHysteresis=10)
 	S = mock_app.load_module("Modules/AutoFire/Solution.py", "Custom.Spaceframe.Modules.AutoFire.Solution")

@@ -1,4 +1,4 @@
-"""Pulse secondaries under Auto Fire with PulseRule 3 (arc percent): AutoFire plans
+"""Pulse secondaries under Auto Fire (arc percent rule): AutoFire plans
 the group's list (SecondaryTarget only supplies candidates)."""
 import os
 import sys
@@ -101,13 +101,14 @@ def test_uncharged_free_weapon_secondary_not_added():
 	assert started(pulse) == [7]
 
 
-def test_rules_1_and_2_never_ask_for_candidates():
-	for iRule in (1, 2):
+def test_rules_1_and_2_both_plan_secondaries():
+	# Both rules are arc rules now (rule 2 adds the flight-time filter).
+	for iRule in (1, 2, 3):
 		AF, core, ship, main, sec, pulse, fake = setup(rule=iRule)
 		AF.FireCycle()
-		assert fake.n == 0
-		assert AF.ManagesPulseSecondaries(GROUP) == 0
-		assert started(pulse) == [7]
+		assert fake.n > 0
+		assert AF.ManagesPulseSecondaries(GROUP) == 1
+		assert started(pulse) == [7, 8]
 
 
 def test_manual_key_hands_off():

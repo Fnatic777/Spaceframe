@@ -74,6 +74,7 @@ def setup(bAutoFire=1, **kw):
 	ST.g_pCore = core
 	if AF != None:
 		AF.g_pCore = core
+		AF.ArcRuleOn = lambda sKind: 0	# arc rule is always on in AutoFire now: these tests cover the non-arc path
 	return App, ST, AF, core, ship
 
 

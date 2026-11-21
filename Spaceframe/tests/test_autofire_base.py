@@ -47,6 +47,17 @@ def setup(tech=1, **kw):
 	return App, AF, core, ship
 
 
+def fake_arc_score(AF, fnScore):
+	# Replaces AF.ArcScore by a stub for tests that are about what happens
+	# AROUND the arc score (spread, reserve, tap, target modes): fnScore(pTarget)
+	# gives the score; an unready weapon still scores 0 like the real one.
+	def stub(pShip, pSystem, pWeapon, pTarget, vOffset, sKind, bNeedReady, tFrame=None, tShot=None, bSecondary=0):
+		if bNeedReady and (not AF.WeaponReady(pWeapon, sKind)):
+			return 0.0
+		return fnScore(pTarget)
+	AF.ArcScore = stub
+
+
 def test_starts_disabled():
 	App, AF, core, ship = setup()
 	assert AF.IsEnabled() == 0

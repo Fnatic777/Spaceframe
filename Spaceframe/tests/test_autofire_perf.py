@@ -11,21 +11,21 @@ def test_defaults_cached_at_start():
 	App, AF, core, ship = base.setup()
 	assert AF.g_iTargetMode == 0 and AF.g_fPhaserMinCharge == 50.0
 	assert AF.g_fPhaserRange == 100.0 and AF.g_iTorpedoReserve == 0
-	assert AF.g_fTorpedoMinSolution == 70.0 and AF.g_iTorpedoRule == 1
+	assert AF.g_iTorpedoRule == 2
 	assert AF.g_fSpreadMinSolution == 85.0 and AF.g_fSpreadMinDistance == 0.0
-	assert AF.g_fPulseMinSolution == 70.0 and AF.g_iPulseRule == 1
+	assert AF.g_iPulseRule == 2
 	assert AF.g_iTapFire == 1 and AF.g_bDebug == 0
 
 
 def test_custom_cached_at_start():
 	App, AF, core, ship = base.setup(TargetMode=2, PhaserMinCharge=30, PhaserRange=80,
-		TorpedoReserve=3, TorpedoMinSolution=60, TorpedoRule=2, SpreadMinSolution=90,
-		SpreadMinDistance=4, PulseMinSolution=55, PulseRule=2, TapFire=0)
+		TorpedoReserve=3, TorpedoRule=1, SpreadMinSolution=90,
+		SpreadMinDistance=4, PulseRule=1, TapFire=0)
 	assert AF.g_iTargetMode == 2 and AF.g_fPhaserMinCharge == 30.0
 	assert AF.g_fPhaserRange == 80.0 and AF.g_iTorpedoReserve == 3
-	assert AF.g_fTorpedoMinSolution == 60.0 and AF.g_iTorpedoRule == 2
+	assert AF.g_iTorpedoRule == 1
 	assert AF.g_fSpreadMinSolution == 90.0 and AF.g_fSpreadMinDistance == 4.0
-	assert AF.g_fPulseMinSolution == 55.0 and AF.g_iPulseRule == 2
+	assert AF.g_iPulseRule == 1
 	assert AF.g_iTapFire == 0
 
 

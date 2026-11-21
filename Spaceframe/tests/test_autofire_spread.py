@@ -8,10 +8,10 @@ import test_autofire_base as base
 
 
 def setup(score=90.0, chains=3, player_mode=0, km=10.0, min_km=3.0):
-	App, AF, core, ship = base.setup(TorpedoMinSolution=50, SpreadMinSolution=75, SpreadMinDistance=min_km)
+	App, AF, core, ship = base.setup(SpreadMinSolution=75, SpreadMinDistance=min_km)
 	S = types.ModuleType("Custom.Spaceframe.Modules.AutoFire.Solution")
-	S.Score = lambda *a: S.score
 	S.score = score
+	base.fake_arc_score(AF, lambda pTarget: S.score)
 	S.GetProjectileInfo = lambda w, s: (100.0, 0.1, 10.0, 0.0)
 	sys.modules["Custom.Spaceframe.Modules.AutoFire.Solution"] = S
 	sys.modules["Custom.Spaceframe.Modules.AutoFire"].Solution = S
@@ -41,8 +41,8 @@ def test_single_mid_score():
 
 
 def test_no_change_when_holding_fire():
-	# Below the torpedo minimum nothing is fired: the spread is left alone.
-	App, AF, core, ship, torps, S = setup(30.0, 3, player_mode=1)
+	# No tube reaches the target (score 0): nothing is fired, the spread is left alone.
+	App, AF, core, ship, torps, S = setup(0.0, 3, player_mode=1)
 	AF.FireCycle()
 	assert torps.chain == 1 and torps.chain_sets == 0
 

@@ -14,16 +14,16 @@ def enemy(sName, iID, fDist):
 
 
 def setup(mode, enemies, scores=None, friends=None, **kw):
-	App, AF, core, ship = base.setup(TargetMode=mode, PhaserRange=100, PhaserMinCharge=50, TorpedoMinSolution=50, **kw)
+	App, AF, core, ship = base.setup(TargetMode=mode, PhaserRange=100, PhaserMinCharge=50, **kw)
 	core.g_pMission = mock_app.Mission(enemies, friends)
 	for e in enemies + (friends or []):
 		mock_app.SHIPS[e.GetObjID()] = e	# registry cleared by make_app
 	S = types.ModuleType("Custom.Spaceframe.Modules.AutoFire.Solution")
 	dScores = scores or {}
-	S.Score = lambda pShip, pTarget, *a: dScores.get(pTarget.GetName(), 0.0)
 	S.GetProjectileInfo = lambda w, s: (100.0, 0.1, 10.0, 0.0)
 	sys.modules["Custom.Spaceframe.Modules.AutoFire.Solution"] = S
 	sys.modules["Custom.Spaceframe.Modules.AutoFire"].Solution = S
+	base.fake_arc_score(AF, lambda pTarget: dScores.get(pTarget.GetName(), 0.0))
 	primary = mock_app.WeaponGroup([mock_app.Bank(100.0, 1.0, 1)])
 	torps = mock_app.WeaponGroup([mock_app.Tube()])
 	torps.torpedo = 1
@@ -97,7 +97,7 @@ def test_mode2_best_per_group():
 
 
 def test_mode2_out_of_range_ignored():
-	App, AF, ship, primary, torps = setup(2, [enemy("Far", 8, 150.0)], {"Far": 30.0})
+	App, AF, ship, primary, torps = setup(2, [enemy("Far", 8, 150.0)], {"Far": 0.0})
 	AF.FireCycle()
 	assert primary.starts() == 0 and torps.starts() == 0
 
