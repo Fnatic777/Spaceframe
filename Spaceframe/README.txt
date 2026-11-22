@@ -41,7 +41,7 @@ EnableInMultiplayer - 1 = also run in multiplayer (may desync)
 Debug               - 2 = the log (as 1) plus short banners on screen (plans, errors).
                       1 = write Spaceframe_debug.log in the game folder (needs the
                       optional "fileio" engine patch, see "Engine patches"; without
-                      it one banner says the log is unavailable). Max 5000 lines
+                      it one banner says the log is unavailable). Max 20000 lines
                       per session, each stamped with the game time. Leave it 0
                       for normal play.
 In every Config.py, percentages are written from 0 to 100 (50 = 50%), and
@@ -165,7 +165,8 @@ has "AutoFire" in Ships.py.
   filter: a tube is also held while distance / torpedo speed is longer than
   TorpedoFlightTimeFar seconds (at TorpedoArcFarDistance km and beyond) to
   TorpedoFlightTimeNear seconds (at TorpedoArcNearDistance km and closer),
-  in proportion in between; 0 = no limit (off if either value is 0); an
+  in proportion in between, plus the torpedo's own guidance time (never more
+  than its lifetime); 0 = no limit (off if either value is 0); an
   unknown speed never blocks. Any other TorpedoRule value (the old 3
   included) counts as 2; the old firing-solution and firing-cone rules, and
   their settings (TorpedoMinSolution, ConeAngle*, Cone*Distance, TargetEvasion,
@@ -178,6 +179,12 @@ has "AutoFire" in Ships.py.
   same PulseArc...Secondary / PulseFlightTime...Secondary for pulse
   weapons); a setting left out falls back to the main one, and the
   hysteresis stays shared.
+  Arc shape (TorpedoArcShape / PulseArcShape, 1 = default): the percent is
+  measured as ONE angle from the arc centre (the 30 degree cone for
+  torpedoes; an ellipse inscribed in the weapon's own, possibly asymmetric,
+  limits for pulse weapons), not per axis. On the axes the percent means the
+  same; in the corners of the old box it is stricter (a torpedo leaving near
+  a corner does not reach the target). 0 = old box depth.
 - Spread: the ship's largest spread for arc scores of SpreadMinSolution or
   more (100 = target dead centre of the tube's cone) and at SpreadMinDistance
   km or further (spread torpedoes need room to turn); Single otherwise. Your
@@ -385,7 +392,7 @@ Debug               - 2 = el log (como 1) y ademas avisos cortos en pantalla.
                       1 = escribe Spaceframe_debug.log en la carpeta del juego
                       (necesita el parche opcional "fileio" del motor, vea
                       "Parches del motor"; sin el, un aviso dice que el log no
-                      esta disponible). Maximo 5000 lineas por sesion, cada una
+                      esta disponible). Maximo 20000 lineas por sesion, cada una
                       con la hora del juego. Dejelo en 0 para jugar normal.
 En todos los Config.py, los porcentajes se escriben de 0 a 100 (50 = 50%), y
 las opciones de activar/desactivar como 1 o 0.
@@ -514,7 +521,8 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   tiempo de vuelo: un tubo tambien espera mientras distancia / velocidad del
   torpedo supere TorpedoFlightTimeFar segundos (a TorpedoArcFarDistance km o
   mas) hasta TorpedoFlightTimeNear segundos (a TorpedoArcNearDistance km o
-  menos), proporcional entre medio; 0 = sin limite (apagado si cualquiera de
+  menos), proporcional entre medio, mas el tiempo de guiado del propio
+  torpedo (nunca mas que su vida); 0 = sin limite (apagado si cualquiera de
   los dos valores es 0); una velocidad desconocida nunca bloquea. Cualquier
   otro valor de TorpedoRule (el antiguo 3 incluido) cuenta como 2; las
   antiguas reglas de solucion de tiro y de cono de tiro, y sus ajustes
@@ -528,6 +536,12 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   mismos PulseArc...Secondary / PulseFlightTime...Secondary para armas de
   pulso); un ajuste omitido toma el principal y la histeresis sigue
   compartida.
+  Forma del arco (TorpedoArcShape / PulseArcShape, 1 = por defecto): el
+  porcentaje se mide como UN angulo desde el centro del arco (cono de 30
+  grados para torpedos; elipse inscrita en los limites propios del arma para
+  pulso, tambien asimetricos), no por eje. Sobre los ejes el porcentaje vale
+  lo mismo; en las esquinas de la caja es mas estricto (un torpedo no alcanza
+  al objetivo si sale cerca de una esquina). 0 = profundidad antigua por caja.
 - Spread: el mayor spread de la nave para notas de arco de SpreadMinSolution
   o mas (100 = objetivo en el centro del cono del tubo) y a SpreadMinDistance
   km o mas (los torpedos en spread necesitan espacio para girar); Single en
@@ -744,7 +758,7 @@ Debug               - 2 = o log (como 1) e tambem avisos curtos na tela.
                       1 = grava Spaceframe_debug.log na pasta do jogo (precisa do
                       patch opcional "fileio" do motor, veja "Patches do
                       motor"; sem ele, um aviso diz que o log nao esta
-                      disponivel). Maximo 5000 linhas por sessao, cada uma com
+                      disponivel). Maximo 20000 linhas por sessao, cada uma com
                       a hora do jogo. Deixe em 0 para jogar normal.
 Em todos os Config.py, porcentagens sao escritas de 0 a 100 (50 = 50%), e
 as opcoes de ligar/desligar como 1 ou 0.
@@ -868,7 +882,8 @@ tiver "AutoFire" no Ships.py.
   (padrao): a regra 1 mais um filtro de tempo de voo: um tubo tambem espera
   enquanto distancia / velocidade do torpedo passar de TorpedoFlightTimeFar
   segundos (a TorpedoArcFarDistance km ou mais) ate TorpedoFlightTimeNear
-  segundos (a TorpedoArcNearDistance km ou menos), proporcional no meio;
+  segundos (a TorpedoArcNearDistance km ou menos), proporcional no meio,
+  mais o tempo de guiamento do proprio torpedo (nunca mais que a sua vida);
   0 = sem limite (desligado se qualquer um dos dois valores for 0); uma
   velocidade desconhecida nunca bloqueia. Qualquer outro valor de
   TorpedoRule (o antigo 3 incluido) conta como 2; as antigas regras de
@@ -883,6 +898,12 @@ tiver "AutoFire" no Ships.py.
   mesmos PulseArc...Secondary / PulseFlightTime...Secondary para armas de
   pulso); um ajuste omitido usa o principal, e a histerese continua
   compartilhada.
+  Formato do arco (TorpedoArcShape / PulseArcShape, 1 = padrao): o porcentual
+  e medido como UM angulo a partir do centro do arco (cone de 30 graus para
+  torpedos; elipse inscrita nos limites da propria arma para pulso, tambem
+  assimetricos), nao por eixo. Sobre os eixos o porcentual vale o mesmo; nos
+  cantos da caixa e mais estrito (um torpedo nao chega ao alvo quando sai
+  perto de um canto). 0 = profundidade antiga por caixa.
 - Spread: o maior spread da nave para notas de arco de SpreadMinSolution ou
   mais (100 = alvo no centro do cone do tubo) e a SpreadMinDistance km ou
   mais (torpedos em spread precisam de espaco para virar); Single nos outros

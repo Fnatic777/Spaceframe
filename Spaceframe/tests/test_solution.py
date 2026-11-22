@@ -86,6 +86,25 @@ def test_pulse_projectile_info():
 	assert S.GetProjectileInfo(mock_app.Pulse(), system) == (150.0, 0.0, 0.0, 10.0)
 
 
+def test_pulse_weapon_firing_guided_missiles():
+	# A pulse-class weapon whose projectile is guided (e.g. Orion's Missile):
+	# the guidance time and lifetime of its script come through.
+	App, S = load()
+	mod = types.ModuleType("Tactical.Projectiles.MissileX")
+	mod.GetLifetime = lambda: 30.0
+	mod.GetGuidanceLifetime = lambda: 30.0
+	sys.modules["Tactical.Projectiles.MissileX"] = mod
+	sys.modules["Tactical"] = types.ModuleType("Tactical")
+	sys.modules["Tactical.Projectiles"] = types.ModuleType("Tactical.Projectiles")
+	sys.modules["Tactical"].Projectiles = sys.modules["Tactical.Projectiles"]
+	sys.modules["Tactical.Projectiles"].MissileX = mod
+	system = mock_app.WeaponGroup([])
+	system.pulse = 1
+	pWeapon = mock_app.Pulse()
+	pWeapon.GetProperty = lambda: type("P", (), {"GetModuleName": lambda self: "Tactical.Projectiles.MissileX"})()
+	assert S.GetProjectileInfo(pWeapon, system) == (150.0, 30.0, 0.0, 30.0)
+
+
 def run():
 	failed = 0
 	names = [n for n in sorted(globals()) if n.startswith("test_")]

@@ -127,14 +127,14 @@ def test_stop_closes_and_next_log_reopens():
 def test_cap_writes_one_final_line_then_silent():
 	pFile = FakeFile()
 	C, App, calls, banners, prints = setup(1, pFile)
-	for i in range(5000):
+	for i in range(20000):
 		C.Log("Mod", "l" + str(i))
-	assert len(pFile.lines) == 5001	# header + 5000
+	assert len(pFile.lines) == 20001	# header + 20000
 	C.Log("Mod", "over1")
 	C.Log("Mod", "over2")
-	assert len(pFile.lines) == 5002
-	assert pFile.lines[-1] == "==== log capped at 5000 lines ====\n"
-	assert len(pFile.lines) == 5002	# nothing more reached the file
+	assert len(pFile.lines) == 20002
+	assert pFile.lines[-1] == "==== log capped at 20000 lines ====\n"
+	assert len(pFile.lines) == 20002	# nothing more reached the file
 	C.Start(object())	# new session resets the counter
 	C.Log("Mod", "again")
 	assert pFile.lines[-1].endswith(" Mod: again\n")

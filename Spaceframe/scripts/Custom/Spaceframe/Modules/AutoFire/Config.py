@@ -69,8 +69,8 @@ PulseRule = 2
 # beyond the edge of the arc), so it does not flicker at the border.
 # PulseArcHysteresis 0 = off: a weapon is ready only while inside the allowed
 # percent, no stickiness.
-PulseArcPercentFar = 60
-PulseArcPercentNear = 80
+PulseArcPercentFar = 90
+PulseArcPercentNear = 90
 PulseArcFarDistance = 40
 PulseArcNearDistance = 20
 PulseArcHysteresis = 0
@@ -79,22 +79,24 @@ PulseArcHysteresis = 0
 # degree cone (0 = centre, 100 = its edge, on both axes). With Secondary
 # Target ON it also decides which secondary targets a tube may take (Auto
 # Fire and manual fire).
-TorpedoArcPercentFar = 60	# percent 0-100, at TorpedoArcFarDistance km and beyond
-TorpedoArcPercentNear = 80	# percent 0-100, at TorpedoArcNearDistance km and closer
+TorpedoArcPercentFar = 90	# percent 0-100, at TorpedoArcFarDistance km and beyond
+TorpedoArcPercentNear = 90	# percent 0-100, at TorpedoArcNearDistance km and closer
 TorpedoArcFarDistance = 40	# km as shown in game
 TorpedoArcNearDistance = 20	# km as shown in game
+TorpedoArcShape = 1	# 1 = the percent is measured as one angle from the arc centre (cone for torpedoes: a corner of the box counts further out, so it is stricter than the sides); 0 = old box depth (deeper of the two axes)
+PulseArcShape = 1	# same for pulse weapons, an ellipse inscribed in the weapon's own (possibly asymmetric) arc limits; 0 = old box depth
 TorpedoArcHysteresis = 0	# percentage points; 0 = off: a tube is ready only while inside the allowed percent, no stickiness
 
 # Separate arc percent for SECONDARY targets (same meaning as the settings
 # above). Used for secondary targets only (Secondary Target ON; Auto Fire and
 # manual filter); the main target keeps the settings above. The hysteresis
 # stays shared. A setting left out here falls back to the main one.
-PulseArcPercentFarSecondary = 40	# percent 0-100, at PulseArcFarDistanceSecondary km and beyond
-PulseArcPercentNearSecondary = 60	# percent 0-100, at PulseArcNearDistanceSecondary km and closer
+PulseArcPercentFarSecondary = 90	# percent 0-100, at PulseArcFarDistanceSecondary km and beyond
+PulseArcPercentNearSecondary = 90	# percent 0-100, at PulseArcNearDistanceSecondary km and closer
 PulseArcFarDistanceSecondary = 30	# km as shown in game
 PulseArcNearDistanceSecondary = 15	# km as shown in game
-TorpedoArcPercentFarSecondary = 40	# percent 0-100, at TorpedoArcFarDistanceSecondary km and beyond
-TorpedoArcPercentNearSecondary = 60	# percent 0-100, at TorpedoArcNearDistanceSecondary km and closer
+TorpedoArcPercentFarSecondary = 90	# percent 0-100, at TorpedoArcFarDistanceSecondary km and beyond
+TorpedoArcPercentNearSecondary = 90	# percent 0-100, at TorpedoArcNearDistanceSecondary km and closer
 TorpedoArcFarDistanceSecondary = 30	# km as shown in game
 TorpedoArcNearDistanceSecondary = 15	# km as shown in game
 
@@ -107,18 +109,20 @@ TorpedoArcNearDistanceSecondary = 15	# km as shown in game
 # between (it uses the same distances as the arc percent of the same kind
 # and of main / secondary). Seconds; 0 = no limit for that band (the filter
 # is off for that kind and role when either its Far or its Near value is 0).
+# A guided projectile (torpedoes) is allowed its guidance time on top of the
+# limit, never more than its lifetime (pulse weapons have no guidance).
 # An unknown projectile speed never blocks. No hysteresis.
-TorpedoFlightTimeFar = 1.5	# seconds, at TorpedoArcFarDistance km and beyond (0 = off)
-TorpedoFlightTimeNear = 1.5	# seconds, at TorpedoArcNearDistance km and closer (0 = off)
-PulseFlightTimeFar = 1.5	# seconds, at PulseArcFarDistance km and beyond (0 = off)
-PulseFlightTimeNear = 1.5	# seconds, at PulseArcNearDistance km and closer (0 = off)
+TorpedoFlightTimeFar = 1.0	# seconds, at TorpedoArcFarDistance km and beyond (0 = off)
+TorpedoFlightTimeNear = 1.0	# seconds, at TorpedoArcNearDistance km and closer (0 = off)
+PulseFlightTimeFar = 1.0	# seconds, at PulseArcFarDistance km and beyond (0 = off)
+PulseFlightTimeNear = 1.0	# seconds, at PulseArcNearDistance km and closer (0 = off)
 
 # The same limits for SECONDARY targets (a setting left out falls back to the
 # main one).
-TorpedoFlightTimeFarSecondary = 1.0	# seconds (0 = off)
-TorpedoFlightTimeNearSecondary = 1.0	# seconds (0 = off)
-PulseFlightTimeFarSecondary = 1.0	# seconds (0 = off)
-PulseFlightTimeNearSecondary = 1.0	# seconds (0 = off)
+TorpedoFlightTimeFarSecondary = 0.5	# seconds (0 = off)
+TorpedoFlightTimeNearSecondary = 0.5	# seconds (0 = off)
+PulseFlightTimeFarSecondary = 0.5	# seconds (0 = off)
+PulseFlightTimeNearSecondary = 0.5	# seconds (0 = off)
 
 # Minimum arc score (percent: 100 = target dead centre of the tube's cone,
 # 1 = at its edge) to switch the torpedoes to spread.

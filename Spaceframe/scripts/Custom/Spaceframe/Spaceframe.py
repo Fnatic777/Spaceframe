@@ -60,7 +60,7 @@ g_bLogOpenFailed = 0	# 1 = the file logger is off until the next Start()
 g_bLogBanner = 0	# 1 = the "log file unavailable" banner was shown this session
 g_bStopping = 0		# 1 = Stop() ran since the last Start(): no banner from the logger
 g_iLogLines = 0		# lines written to the log file this session
-LOG_MAX_LINES = 5000	# size cap per session
+LOG_MAX_LINES = 20000	# size cap per session
 
 
 ###############################################################################

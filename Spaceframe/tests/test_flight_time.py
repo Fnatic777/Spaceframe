@@ -303,6 +303,56 @@ def test_debug_off_no_log():
 	assert [l for l in core.logs if l[1].find("Flight time filter") >= 0] == []
 
 
+# --- guidance time and lifetime ------------------------------------------------
+def test_guidance_extends_the_limit():
+	# Limit 1.0 s; 20 km at speed 100 = est 1.143 s. Guidance 0.1 s: still blocked;
+	# guidance 0.2 s: limit 1.2 s, passes. Guidance 0 / unknown: as before.
+	App, AF, core, ship, target, torps, S = torp(TorpedoFlightTimeFar=1.0, TorpedoFlightTimeNear=1.0)
+	fDist = 20 * KM
+	assert AF.FlightBlocked("torpedo", 0, fDist, 100.0, 1) == 1
+	assert AF.FlightBlocked("torpedo", 0, fDist, 100.0, 1, 0.0, 0.0) == 1
+	assert AF.FlightBlocked("torpedo", 0, fDist, 100.0, 1, 0.1, 0.0) == 1
+	assert AF.FlightBlocked("torpedo", 0, fDist, 100.0, 1, 0.2, 0.0) == 0
+
+
+def test_guidance_does_not_turn_the_filter_on():
+	App, AF, core, ship, target, torps, S = torp(TorpedoFlightTimeFar=0, TorpedoFlightTimeNear=0)
+	assert AF.FlightBlocked("torpedo", 0, 90 * KM, 100.0, 1, 5.0, 0.0) == 0
+
+
+def test_lifetime_caps_the_limit():
+	# Limit 1.5 s + guidance 1.0 s = 2.5 s, but the projectile lives 1.2 s: the
+	# estimate 1.43 s (25 km) is over the cap; 1.14 s (20 km) is under it.
+	App, AF, core, ship, target, torps, S = torp(TorpedoFlightTimeFar=1.5, TorpedoFlightTimeNear=1.5)
+	assert AF.FlightBlocked("torpedo", 0, 25 * KM, 100.0, 1, 1.0, 0.0) == 0
+	assert AF.FlightBlocked("torpedo", 0, 25 * KM, 100.0, 1, 1.0, 1.2) == 1
+	assert AF.FlightBlocked("torpedo", 0, 20 * KM, 100.0, 1, 1.0, 1.2) == 0
+
+
+def test_guidance_secondary_and_pulse():
+	App, AF, core, ship, target, torps, S = torp(TorpedoFlightTimeFarSecondary=1.0, TorpedoFlightTimeNearSecondary=1.0)
+	assert AF.FlightBlocked("torpedo", 1, 20 * KM, 100.0, 1, 0.1, 0.0) == 1
+	assert AF.FlightBlocked("torpedo", 1, 20 * KM, 100.0, 1, 0.2, 0.0) == 0
+
+
+def test_shot_tuple_carries_the_guidance():
+	App, AF, core, ship, target, torps, S = torp(TorpedoFlightTimeFar=1.0, TorpedoFlightTimeNear=1.0)
+	TT.place(target, 0.1, 20.0)
+	tShot = AF.TorpedoShot(ship, torps, target, None)
+	assert len(tShot) == 4 and tShot[3] >= 0.0
+
+
+def test_guided_pulse_projectile_is_not_held_at_range():
+	# Orion's Missile (pulse-class weapon): speed 4.4 km/s, guidance and lifetime 30 s.
+	# At 25 km the estimate is 5.7 s: held with no guidance (limit 1.5 s), free with it.
+	App, AF, core, ship, target, torps, S = pulse(PulseFlightTimeFar=1.5, PulseFlightTimeNear=1.5)
+	fSpeed = 25.0
+	assert AF.FlightBlocked("pulse", 0, 25 * KM, fSpeed, 1, 0.0, 30.0) == 1
+	assert AF.FlightBlocked("pulse", 0, 25 * KM, fSpeed, 1, 30.0, 30.0) == 0
+	assert AF.FlightBlocked("pulse", 0, 100 * KM, fSpeed, 1, 30.0, 30.0) == 0	# 22.9 s, under the 30 s cap
+	assert AF.FlightBlocked("pulse", 0, 150 * KM, fSpeed, 1, 30.0, 30.0) == 1	# 34.3 s, over the 30 s lifetime
+
+
 def run():
 	failed = 0
 	names = [n for n in sorted(globals()) if n.startswith("test_")]

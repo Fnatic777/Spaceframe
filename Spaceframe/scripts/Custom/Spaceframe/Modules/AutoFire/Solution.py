@@ -56,7 +56,8 @@ def GetScriptInfo(sScript):
 def GetProjectileInfo(pWeapon, pSystem):
 	# (speed, guidance lifetime, max angular accel, lifetime) of what the
 	# weapon fires. Torpedoes: the system's current ammo. Pulse: the
-	# weapon's launch speed and its projectile's lifetime, no guidance.
+	# weapon's launch speed, and its projectile's guidance time and lifetime (a
+	# pulse-class weapon can fire guided missiles).
 	pTorpedoes = App.TorpedoSystem_Cast(pSystem)
 	if pTorpedoes != None:
 		pAmmo = pTorpedoes.GetCurrentAmmoType()
@@ -64,12 +65,15 @@ def GetProjectileInfo(pWeapon, pSystem):
 		tScript = GetScriptInfo(str(pAmmo.GetTorpedoScript()))
 		return (fSpeed, tScript[0], tScript[1], tScript[2])
 	fLifetime = 0.0
+	fGuidance = 0.0
 	try:
 		sModule = str(pWeapon.GetProperty().GetModuleName())
-		fLifetime = GetScriptInfo(sModule)[2]
+		tScript = GetScriptInfo(sModule)
+		fGuidance = tScript[0]
+		fLifetime = tScript[2]
 	except:
 		pass
-	return (float(pWeapon.GetLaunchSpeed()), 0.0, 0.0, fLifetime)
+	return (float(pWeapon.GetLaunchSpeed()), fGuidance, 0.0, fLifetime)
 
 
 def PredictPosition(pTarget, vOffset, fTime):
@@ -241,6 +245,92 @@ def TubeDepth(tFrame, vPoint):
 		fWidth = math.atan2(Dot3(tDelta, tFrame[2]), fForward)
 		fHeight = math.atan2(Dot3(tDelta, tFrame[3]), fForward)
 		return max(abs(fWidth), abs(fHeight)) / TORP_ARC_HALF
+	except:
+		return None
+
+
+###############################################################################
+#	Cone / ellipse depth (replaces the box depth when the arc shape switch is 1).
+#	The engine's arc is a box in two angles, whose corners are further from the
+#	centre than the sides. The depth here is measured as one angle from the
+#	centre direction of the box, relative to an ellipse inscribed in the box
+#	(semi-axes = half the width and height ranges): 0 at the centre, 1 on the
+#	boundary, more outside. A symmetric +-30 tube gives exactly angle / 30 deg.
+###############################################################################
+def Norm3(tV):
+	# Unit vector, or None when the vector is (almost) zero.
+	fLen = math.sqrt(Dot3(tV, tV))
+	if fLen <= 0.000000001:
+		return None
+	return (tV[0] / fLen, tV[1] / fLen, tV[2] / fLen)
+
+
+def ConeDepth(tPos, tFwd, tRight, tUp, tPoint, fWmin, fWmax, fHmin, fHmax):
+	# Depth of tPoint in the cone/ellipse of a weapon at tPos with axes
+	# (tFwd, tRight, tUp) and limits in radians. ARC_BEHIND when the point is
+	# behind the weapon (dot with forward <= 0). None when not computable.
+	try:
+		fA = (fWmax - fWmin) / 2.0
+		fB = (fHmax - fHmin) / 2.0
+		if (fA <= 0.000001) or (fB <= 0.000001):
+			return None
+		tDelta = (tPoint[0] - tPos[0], tPoint[1] - tPos[1], tPoint[2] - tPos[2])
+		if Dot3(tDelta, tFwd) <= 0.0:
+			return ARC_BEHIND
+		tF = Norm3(tFwd)
+		tR = Norm3(tRight)
+		tU = Norm3(tUp)
+		tD = Norm3(tDelta)
+		if (tF == None) or (tR == None) or (tU == None) or (tD == None):
+			return None
+		fHc = (fWmax + fWmin) / 2.0
+		fVc = (fHmax + fHmin) / 2.0
+		fTh = math.tan(fHc)
+		fTv = math.tan(fVc)
+		tC = Norm3((tF[0] + fTh * tR[0] + fTv * tU[0], tF[1] + fTh * tR[1] + fTv * tU[1], tF[2] + fTh * tR[2] + fTv * tU[2]))
+		if tC == None:
+			return None
+		fRc = Dot3(tR, tC)
+		tP1 = Norm3((tR[0] - fRc * tC[0], tR[1] - fRc * tC[1], tR[2] - fRc * tC[2]))
+		if tP1 == None:
+			return None
+		tP2 = (tC[1] * tP1[2] - tC[2] * tP1[1], tC[2] * tP1[0] - tC[0] * tP1[2], tC[0] * tP1[1] - tC[1] * tP1[0])
+		if Dot3(tP2, tU) < 0.0:
+			tP2 = (-tP2[0], -tP2[1], -tP2[2])
+		fCos = Dot3(tD, tC)
+		if fCos > 1.0:
+			fCos = 1.0
+		if fCos < -1.0:
+			fCos = -1.0
+		fTheta = math.acos(fCos)
+		fPhi = math.atan2(Dot3(tD, tP2), Dot3(tD, tP1))
+		fCp = math.cos(fPhi) / fA
+		fSp = math.sin(fPhi) / fB
+		fRadius = 1.0 / math.sqrt(fCp * fCp + fSp * fSp)
+		return fTheta / fRadius
+	except:
+		return None
+
+
+def TubeConeDepth(tFrame, vPoint):
+	# ConeDepth of the torpedo tube cone (+-30 degrees). None on any error.
+	if tFrame == None:
+		return None
+	try:
+		return ConeDepth(tFrame[0], tFrame[1], tFrame[2], tFrame[3], Triple(vPoint), -TORP_ARC_HALF, TORP_ARC_HALF, -TORP_ARC_HALF, TORP_ARC_HALF)
+	except:
+		return None
+
+
+def ArcConeDepth(pShip, pWeapon, vPoint, sMode=None):
+	# ConeDepth of a pulse weapon's own arc limits (axes as ArcDepth). None
+	# when anything is unavailable.
+	if sMode == None:
+		sMode = WEAPON_POSITION
+	try:
+		tAxes = ArcAxes(pShip, pWeapon)
+		tLim = ArcLimits(pWeapon)
+		return ConeDepth(Triple(WeaponPosition(pShip, pWeapon, sMode)), Triple(tAxes[0]), Triple(tAxes[1]), Triple(tAxes[2]), Triple(vPoint), tLim[0], tLim[1], tLim[2], tLim[3])
 	except:
 		return None
 
