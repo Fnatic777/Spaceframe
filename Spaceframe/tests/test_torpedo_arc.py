@@ -9,6 +9,10 @@ import test_autofire_base as base
 
 HALF = 0.5235988	# 30 degrees
 GROUP = 0		# WG_PRIMARY
+SPEED = 100.0	# mock torpedo launch speed, world units per second
+# Flight times of the old 30 km / 5 km band distances at SPEED (arc percent follows flight time now).
+FAR_FT = 30 / 0.175 / SPEED
+NEAR_FT = 5 / 0.175 / SPEED
 
 
 def P(x, y, z):
@@ -108,7 +112,7 @@ def test_depth_unavailable_is_none():
 # --- AutoFire: TorpedoRule 3 --------------------------------------------------
 def rule3(**kw):
 	dCfg = {"TorpedoRule": 1, "TapFire": 0, "TorpedoArcPercentFar": 50,
-		"TorpedoArcPercentNear": 90, "TorpedoArcFarDistance": 30, "TorpedoArcNearDistance": 5,
+		"TorpedoArcPercentNear": 90, "ArcFlightTimeFar": FAR_FT, "ArcFlightTimeNear": NEAR_FT,
 		"TorpedoArcHysteresis": 10}
 	for k in kw:
 		dCfg[k] = kw[k]
@@ -137,29 +141,28 @@ def best(AF, ship, torps, target):
 
 def test_config_read():
 	App, AF, core, ship, target, torps, S = rule3(TorpedoArcPercentFar=40, TorpedoArcPercentNear=80,
-		TorpedoArcFarDistance=20, TorpedoArcNearDistance=2, TorpedoArcHysteresis=5)
+		ArcFlightTimeFar=2.0, ArcFlightTimeNear=0.25, TorpedoArcHysteresis=5)
 	assert AF.g_iTorpedoRule == 1 and AF.g_fTorpArcFar == 40.0 and AF.g_fTorpArcNear == 80.0
 	assert AF.g_fTorpArcHysteresis == 5.0
-	assert abs(AF.g_fTorpArcFarDistance - 20 / 0.175) < 1e-6
-	assert abs(AF.g_fTorpArcNearDistance - 2 / 0.175) < 1e-6
+	assert AF.g_fArcFtFar == 2.0 and AF.g_fArcFtNear == 0.25
 
 
 def test_config_defaults():
 	App, AF, core, ship = base.setup()
-	assert AF.g_fTorpArcFar == 50.0 and AF.g_fTorpArcNear == 90.0 and AF.g_fTorpArcHysteresis == 10.0
-	assert abs(AF.g_fTorpArcFarDistance - 30 / 0.175) < 1e-6
-	assert abs(AF.g_fTorpArcNearDistance - 5 / 0.175) < 1e-6
+	assert AF.g_fTorpArcFar == 70.0 and AF.g_fTorpArcNear == 90.0 and AF.g_fTorpArcHysteresis == 10.0
+	assert AF.g_fArcFtFar == 1.5 and AF.g_fArcFtNear == 0.5
 
 
 def test_allowed_uses_the_torpedo_band():
 	App, AF, core, ship, target, torps, S = rule3()
 	tBand = AF.ArcBand("torpedo")[0]
-	assert AF.ArcAllowed(100 / 0.175, tBand) == 50.0
-	assert AF.ArcAllowed(1 / 0.175, tBand) == 90.0
-	assert abs(AF.ArcAllowed(17.5 / 0.175, tBand) - 70.0) < 1e-6
+	assert AF.ArcAllowed(100 / 0.175, SPEED, tBand) == 50.0	# flight time >= far
+	assert AF.ArcAllowed(1 / 0.175, SPEED, tBand) == 90.0	# flight time <= near
+	assert abs(AF.ArcAllowed(17.5 / 0.175, SPEED, tBand) - 70.0) < 1e-6	# halfway
+	assert AF.ArcAllowed(100 / 0.175, 0.0, tBand) == 90.0	# unknown speed: near percent
 	AF.g_fArcFar = 10.0	# the pulse band is separate
-	assert AF.ArcAllowed(100 / 0.175, tBand) == 50.0
-	assert AF.ArcAllowed(100 / 0.175) == 10.0
+	assert AF.ArcAllowed(100 / 0.175, SPEED, tBand) == 50.0
+	assert AF.ArcAllowed(100 / 0.175, SPEED) == 10.0
 
 
 def test_tube_within_percent_fires_and_score_is_depth():

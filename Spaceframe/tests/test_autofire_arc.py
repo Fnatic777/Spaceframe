@@ -9,6 +9,10 @@ import test_autofire_base as base
 
 FAR_KM = 30.0
 NEAR_KM = 5.0
+SPEED = 150.0	# mock Pulse launch speed, world units per second
+# Flight times of the old FAR / NEAR distances at SPEED (the arc percent follows flight time now).
+FAR_FT = FAR_KM / 0.175 / SPEED
+NEAR_FT = NEAR_KM / 0.175 / SPEED
 
 
 def P(x, y, z):
@@ -107,7 +111,7 @@ def test_lead_point_leads_moving_target():
 # --- PulseRule 1 (arc percent only) ------------------------------------------------------------
 def rule3(**kw):
 	dCfg = {"PulseRule": 1, "TapFire": 0, "PulseArcPercentFar": 50, "PulseArcPercentNear": 90,
-		"PulseArcFarDistance": FAR_KM, "PulseArcNearDistance": NEAR_KM, "PulseArcHysteresis": 10}
+		"ArcFlightTimeFar": FAR_FT, "ArcFlightTimeNear": NEAR_FT, "PulseArcHysteresis": 10}
 	for k in kw:
 		dCfg[k] = kw[k]
 	App, AF, core, ship = base.setup(**dCfg)
@@ -134,24 +138,33 @@ def score(AF, ship, pulse, w, target):
 
 def test_config_read():
 	App, AF, core, ship, target, pulse, S = rule3(PulseArcPercentFar=40, PulseArcPercentNear=80,
-		PulseArcFarDistance=20, PulseArcNearDistance=2, PulseArcHysteresis=5)
+		ArcFlightTimeFar=2.0, ArcFlightTimeNear=0.25, PulseArcHysteresis=5)
 	assert AF.g_iPulseRule == 1 and AF.g_fArcFar == 40.0 and AF.g_fArcNear == 80.0 and AF.g_fArcHysteresis == 5.0
-	assert abs(AF.g_fArcFarDistance - 20 / 0.175) < 1e-6 and abs(AF.g_fArcNearDistance - 2 / 0.175) < 1e-6
+	assert AF.g_fArcFtFar == 2.0 and AF.g_fArcFtNear == 0.25
 
 
 def test_config_defaults():
 	App, AF, core, ship = base.setup()
-	assert AF.g_fArcFar == 50.0 and AF.g_fArcNear == 90.0 and AF.g_fArcHysteresis == 10.0
-	assert abs(AF.g_fArcFarDistance - 30 / 0.175) < 1e-6 and abs(AF.g_fArcNearDistance - 5 / 0.175) < 1e-6
+	assert AF.g_fArcFar == 70.0 and AF.g_fArcNear == 90.0 and AF.g_fArcHysteresis == 10.0
+	assert AF.g_fArcFtFar == 1.5 and AF.g_fArcFtNear == 0.5
 
 
 def test_allowed_far_near_middle():
+	# percent by flight time (distance / speed): <= near time = near %, >= far time = far %, linear between
 	App, AF, core, ship, target, pulse, S = rule3()
-	assert AF.ArcAllowed(100 / 0.175) == 50.0	# beyond far
-	assert AF.ArcAllowed(FAR_KM / 0.175) == 50.0
-	assert AF.ArcAllowed(NEAR_KM / 0.175) == 90.0
-	assert AF.ArcAllowed(1 / 0.175) == 90.0	# closer than near
-	assert abs(AF.ArcAllowed(17.5 / 0.175) - 70.0) < 1e-6
+	assert AF.ArcAllowed(100 / 0.175, SPEED) == 50.0	# beyond far
+	assert AF.ArcAllowed(FAR_KM / 0.175, SPEED) == 50.0
+	assert AF.ArcAllowed(NEAR_KM / 0.175, SPEED) == 90.0
+	assert AF.ArcAllowed(1 / 0.175, SPEED) == 90.0	# closer than near
+	assert abs(AF.ArcAllowed(17.5 / 0.175, SPEED) - 70.0) < 1e-6
+	# the same distance is a different flight time at another speed
+	assert AF.ArcAllowed(FAR_KM / 0.175, SPEED * 2.0) < 90.0 and AF.ArcAllowed(FAR_KM / 0.175, SPEED * 2.0) > 50.0
+
+
+def test_allowed_unknown_speed_is_near():
+	App, AF, core, ship, target, pulse, S = rule3()
+	assert AF.ArcAllowed(100 / 0.175, 0.0) == 90.0
+	assert AF.ArcAllowed(100 / 0.175, -1.0) == 90.0
 
 
 def test_ready_far():

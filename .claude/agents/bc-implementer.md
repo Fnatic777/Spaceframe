@@ -25,14 +25,27 @@ Code rules (game code under `*/scripts/`):
 - Vanilla game files: never edit in the repo copy beyond marked
   `# <Mod> - start/end` blocks documented in `<Mod>/patches/`.
 - Config values: percentages 0-100, switches 1/0, Interval in seconds; add every new setting
-  to the module's Config.py with a comment, and to the README (EN/ES/PT) when user-facing.
+  to the module's Config.py with a comment (the README follows in the feature's docs pass).
+- Keep module files under ~1500 lines: new helper groups go into a sibling file in the module
+  folder (imported as `Custom.Spaceframe.Modules.<Name>.<File>`), not into the main file.
 
 Tests (`<Mod>/tests/`, py3 against `mock_app.py`): write the failing test first, then the code.
 Extend `mock_app.py` minimally. Comments in English.
 
 Editing: change files with Edit (small changes) or Write (new/rewritten files). Never patch
-files through shell heredocs or inline python/sed scripts - quoting breaks and edits get lost.
-Bash is for running check.py, tests, grep and git diff only.
+files through shell heredocs, `python - <<EOF`, `python -c` or sed - quoting breaks and edits get
+lost. Bash is for running check.py, tests, grep and git diff only.
+Edit hygiene (most failed edits so far were a wrong number of leading tabs):
+- Take `old_string` from a Read of that exact range done after your last change to the file,
+  copied character for character (tabs, not spaces; the line-number prefix stripped).
+- Keep `old_string` short: 1-3 lines with one distinctive anchor line. Do not rebuild long blocks.
+- After one "not found", Read those lines again (offset/limit) before retrying - never guess the
+  indentation twice. "Found N matches": add one neighbouring line, not `replace_all`.
+- Large files (AutoFire.py, SecondaryTarget.py, README.txt): find the place with Grep `-n`, then
+  Read only ~40 lines around it. Do not read the whole file again after each edit.
+- Inner loop: `python tools/check.py --only <test name part>`; finish with the full `check.py`.
+- README.txt: only when the task says so (docs pass at the end of a feature, see CLAUDE.md).
+  Before that, document new settings in the module's Config.py comments.
 
 If a spec file was given (`<Mod>/docs/*-spec.md`), it is the contract: follow it, and report any
 deviation under FOUND instead of silently changing the design.

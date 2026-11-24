@@ -35,7 +35,7 @@ def setup(rule=3, tap=1, fore=5.0, aft=5.0, secy=0.0, manual=0, module=1):
 	One fore pulse weapon (+x) and one aft (-x), arcs +-0.5 rad on both axes,
 	charge `fore` / `aft` (minimum 2.0)."""
 	App, AF, core, ship = base.setup(PulseRule=rule, TapFire=tap, PulseArcPercentFar=50,
-		PulseArcPercentNear=90, PulseArcFarDistance=30, PulseArcNearDistance=5, PulseArcHysteresis=10)
+		PulseArcPercentNear=90, PulseArcHysteresis=10)
 	S = mock_app.load_module("Modules/AutoFire/Solution.py", "Custom.Spaceframe.Modules.AutoFire.Solution")
 	sys.modules["Custom.Spaceframe.Modules.AutoFire"].Solution = S
 	main = mock_app.Ship("Main", 7)

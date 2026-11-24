@@ -38,6 +38,12 @@ def setup(tech=1, **kw):
 	mock_app.install(App)
 	register_packages(make_config(**kw))
 	AF = mock_app.load_module("Modules/AutoFire/AutoFire.py", "Custom.Spaceframe.Modules.AutoFire.AutoFire")
+	# The package attributes make the modules' lazy "import Custom...X" find them.
+	sys.modules["Custom.Spaceframe.Modules.AutoFire"].AutoFire = AF
+	TD = mock_app.load_module("Modules/AutoFire/TorpDiag.py", "Custom.Spaceframe.Modules.AutoFire.TorpDiag")
+	sys.modules["Custom.Spaceframe.Modules.AutoFire"].TorpDiag = TD
+	WH = mock_app.load_module("Modules/AutoFire/WarpHold.py", "Custom.Spaceframe.Modules.AutoFire.WarpHold")
+	sys.modules["Custom.Spaceframe.Modules.AutoFire"].WarpHold = WH
 	core = mock_app.Core()
 	ship = mock_app.Ship("Galaxy", 1)
 	if tech:
@@ -54,7 +60,11 @@ def fake_arc_score(AF, fnScore):
 	def stub(pShip, pSystem, pWeapon, pTarget, vOffset, sKind, bNeedReady, tFrame=None, tShot=None, bSecondary=0):
 		if bNeedReady and (not AF.WeaponReady(pWeapon, sKind)):
 			return 0.0
-		return fnScore(pTarget)
+		fScore = fnScore(pTarget)
+		if (fScore > 0.0) and (sKind == "torpedo") and bNeedReady:
+			# Like the real ArcScore: record the spread verdict (centre distance).
+			AF.NoteSpread(pTarget.GetObjID(), AF.SpreadShot(pSystem, AF.GetDistance(pShip, pTarget), AF.TorpedoSpeed(pSystem)))
+		return fScore
 	AF.ArcScore = stub
 
 

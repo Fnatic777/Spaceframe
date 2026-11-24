@@ -242,7 +242,7 @@ def setup3(tap=1, fwd=1, aft=1, secx=-20.0, secy=0.0):
 	forward tube (+x), aft tube (-x); the secondary at (secx, secy, 0)."""
 	App, AF, core, ship = base.setup(TapFire=tap, TorpedoRule=1,
 		SecondaryTorpedoes=1, TorpedoArcPercentFar=50, TorpedoArcPercentNear=90,
-		TorpedoArcFarDistance=30, TorpedoArcNearDistance=5, TorpedoArcHysteresis=10)
+		TorpedoArcHysteresis=10)
 	S = mock_app.load_module("Modules/AutoFire/Solution.py", "Custom.Spaceframe.Modules.AutoFire.Solution")
 	sys.modules["Custom.Spaceframe.Modules.AutoFire"].Solution = S
 	main = mock_app.Ship("Main", 7)

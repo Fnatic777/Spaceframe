@@ -72,6 +72,7 @@ Families = {
 Ships = {
 	"DefiantNX":		{"AblativeArmor": 25},
 	"Defiant":			{"AblativeArmor": Def},
+	"Steamrunner":		{"AblativeArmor": Def},
 	"SovereignR":		{"AblativeArmor": 75},
 	"Inquiry":			{"AblativeArmor": Def},
 	"ExcelsiorII":		{"AblativeArmor": 25},

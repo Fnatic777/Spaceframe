@@ -31,20 +31,25 @@ class FakeObj:
 		pass
 
 
+TD = None	# the TorpDiag module of the current scene (set by scene())
+
+
 def scene(bDebug):
+	global TD
 	App, AF, core, ship = base.setup()
+	TD = sys.modules["Custom.Spaceframe.Modules.AutoFire.TorpDiag"]
 	AF.g_bDebug = bDebug
 	AF.g_iShipID = 7
-	AF.g_lTorpList = None
-	AF.g_bTorpLookup = 0
-	AF.g_lTorpWatch = []
+	TD.g_lTorpList = None
+	TD.g_bTorpLookup = 0
+	TD.g_lTorpWatch = []
 	App.Torpedo_Cast = lambda o: o
 	return App, AF, core
 
 
 def test_logs_target_and_list():
 	App, AF, core = scene(1)
-	AF.g_lTorpList = [11, [12], 0.0]
+	TD.g_lTorpList = [11, [12], 0.0]
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(FakeTorp(7, 0)))
 	l = [x[1] for x in core.logs if x[1].startswith("Torpedo launched")]
 	assert len(l) == 1 and "target 0" in l[0] and "head 11" in l[0] and "[12]" in l[0], l
@@ -71,16 +76,16 @@ def test_follow_up_summary_when_torpedo_ends():
 	pT = FakeTorp(7, 5)
 	pT.GetObjID = lambda: 70
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(pT))
-	assert len(AF.g_lTorpWatch) == 1
+	assert len(TD.g_lTorpWatch) == 1
 	App.Torpedo_GetObjectByID = lambda n, i: pT
-	AF.TorpFollowUp()
-	assert len(AF.g_lTorpWatch) == 1
+	TD.TorpFollowUp()
+	assert len(TD.g_lTorpWatch) == 1
 	clock[0] = 1.2
 	App.Torpedo_GetObjectByID = lambda n, i: None
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	l = [x[1] for x in core.logs if x[1].startswith("Torpedo 70 ended")]
 	assert len(l) == 1 and "flew 1.2 s" in l[0] and "target 5" in l[0], l
-	assert AF.g_lTorpWatch == []
+	assert TD.g_lTorpWatch == []
 
 
 def test_follow_up_silent_when_lookup_fails():
@@ -93,8 +98,8 @@ def test_follow_up_silent_when_lookup_fails():
 	def boom(n, i):
 		raise AttributeError("no")
 	App.Torpedo_GetObjectByID = boom
-	AF.TorpFollowUp()
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
+	TD.TorpFollowUp()
 	assert len([x for x in core.logs if x[1].startswith("Torpedo_GetObjectByID failed")]) == 1
 	assert [x for x in core.logs if x[1].find("ended") >= 0] == []
 
@@ -119,7 +124,7 @@ def test_aim_angle_logged():
 	pTarget = P(10.0, 0.0, 0.0)
 	pTarget.GetWorldLocation = lambda: P(10.0, 5.7735, 0.0)
 	App.ShipClass_GetObjectByID = lambda n, i: pTarget
-	s = AF.TorpAim(pT)
+	s = TD.TorpAim(pT)
 	assert s.startswith(" aim 30.0 deg (100% of cone)"), s
 
 
@@ -147,14 +152,14 @@ def test_motion_logged():
 	pOwn = P(0, 0, 0)
 	pOwn.GetVelocityTG = lambda: P(1.0, 0.0, 0.0)
 	App.ShipClass_GetObjectByID = lambda n, i: pOwn if i == 7 else pTarget
-	s = AF.TorpMotion(pT)
+	s = TD.TorpMotion(pT)
 	assert "tgt 3.16 km/s" in s and "closing 2.00 km/s" in s and "lateral 3.00 km/s" in s, s
 	assert "own 1.00 km/s" in s and "proj 10.0 km/s ft 2.00 s drift 6.00 km" in s, s
 	assert s.endswith("vel 0.0 deg"), s
 	pT.GetVelocityTG = lambda: P(0.0, 0.0, 0.0)
-	assert AF.TorpMotion(pT).endswith(" proj ?")
+	assert TD.TorpMotion(pT).endswith(" proj ?")
 	App.ShipClass_GetObjectByID = lambda n, i: None
-	assert AF.TorpMotion(pT) == ""
+	assert TD.TorpMotion(pT) == ""
 
 
 class _P:
@@ -196,13 +201,13 @@ def prediction_scene():
 
 def test_prediction_stored_at_launch():
 	App, AF, core, clock, pT, pTarget = prediction_scene()
-	tP = AF.TorpPrediction(pT)
+	tP = TD.TorpPrediction(pT)
 	assert tP[0] == (20.0, 0.0, 0.0) and abs(tP[1] - 2.0) < 1e-9 and tP[2] == (0.0, 1.0, 0.0), tP
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(pT))
-	e = AF.g_lTorpWatch[0]
+	e = TD.g_lTorpWatch[0]
 	assert len(e) == 16 and e[15] == None and e[11] == (20.0, 0.0, 0.0) and e[14] == None
 	App.ShipClass_GetObjectByID = lambda n, i: None
-	assert AF.TorpPrediction(pT) == None
+	assert TD.TorpPrediction(pT) == None
 
 
 def test_sample_closest_to_predicted_arrival_in_summary():
@@ -211,18 +216,18 @@ def test_sample_closest_to_predicted_arrival_in_summary():
 	clock[0] = 1.0
 	pTarget.pos = [20.0, 1.0, 0.0]
 	pT.pos = [10.0, 0.0, 0.0]
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	clock[0] = 2.0	# the predicted arrival: target 3 km off the point, velocity turned 90 deg
 	pTarget.pos = [20.0, 3.0, 0.0]
 	pTarget.vel = [1.0, 0.0, 0.0]
 	pT.pos = [19.0, 0.0, 0.0]
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	clock[0] = 2.5	# later samples do not replace it
 	pTarget.pos = [25.0, 9.0, 0.0]
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	App.Torpedo_GetObjectByID = lambda n, i: None
 	clock[0] = 2.6
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	l = [x[1] for x in core.logs if x[1].startswith("Torpedo 70 ended")]
 	assert len(l) == 1, l
 	assert "predicted arrival 2.0 s (sampled 0.00 s off): target 3.00 km from the predicted point" in l[0], l
@@ -234,7 +239,7 @@ def test_no_sample_when_the_torpedo_ends_first():
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(pT))
 	App.Torpedo_GetObjectByID = lambda n, i: None
 	clock[0] = 0.5
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	l = [x[1] for x in core.logs if x[1].startswith("Torpedo 70 ended")]
 	assert len(l) == 1 and "no sample at the predicted arrival (2.0 s)" in l[0], l
 
@@ -245,7 +250,7 @@ def test_summary_without_prediction_unchanged():
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(pT))
 	App.Torpedo_GetObjectByID = lambda n, i: None
 	clock[0] = 0.5
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	l = [x[1] for x in core.logs if x[1].startswith("Torpedo 70 ended")]
 	assert len(l) == 1 and l[0].find("predicted") < 0, l
 
@@ -271,13 +276,13 @@ def test_target_gone_noted_in_summary():
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(pT))
 	App.Torpedo_GetObjectByID = lambda n, i: pT
 	clock[0] = 0.4
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	pShip.dead = 1
 	clock[0] = 0.6
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	clock[0] = 1.2
 	App.Torpedo_GetObjectByID = lambda n, i: None
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	l = [x[1] for x in core.logs if x[1].startswith("Torpedo 70 ended")]
 	assert len(l) == 1 and "target gone 0.6 s after launch" in l[0], l
 
@@ -299,7 +304,7 @@ def test_target_alive_noted_in_summary():
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(pT))
 	clock[0] = 1.0
 	App.Torpedo_GetObjectByID = lambda n, i: None
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	l = [x[1] for x in core.logs if x[1].startswith("Torpedo 71 ended")]
 	assert len(l) == 1 and l[0].endswith("target alive"), l
 
@@ -317,19 +322,19 @@ def test_non_guided_projectile_ignored():
 	pT.GetModuleName = lambda: "Bolt"
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(pT))
 	assert [x for x in core.logs if x[1].startswith("Torpedo launched")] == []
-	assert AF.g_lTorpWatch == []
+	assert TD.g_lTorpWatch == []
 	pT.GetModuleName = lambda: "Photon"
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(pT))
 	l = [x[1] for x in core.logs if x[1].startswith("Torpedo launched")]
 	assert len(l) == 1 and "toward-point 0.0 deg" in l[0], l
-	assert len(AF.g_lTorpWatch) == 1
+	assert len(TD.g_lTorpWatch) == 1
 
 
 def test_toward_point_angle():
 	App, AF, core, clock, pT, pTarget = prediction_scene()
-	assert AF.TorpPointAngle(pT, (20.0, 0.0, 0.0)) == " toward-point 0.0 deg"
-	assert AF.TorpPointAngle(pT, (0.0, 5.0, 0.0)) == " toward-point 90.0 deg"
-	assert AF.TorpPointAngle(pT, (0.0, 0.0, 0.0)) == " toward-point ?"
+	assert TD.TorpPointAngle(pT, (20.0, 0.0, 0.0)) == " toward-point 0.0 deg"
+	assert TD.TorpPointAngle(pT, (0.0, 5.0, 0.0)) == " toward-point 90.0 deg"
+	assert TD.TorpPointAngle(pT, (0.0, 0.0, 0.0)) == " toward-point ?"
 	App.ShipClass_GetObjectByID = lambda n, i: None
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(pT))
 	l = [x[1] for x in core.logs if x[1].startswith("Torpedo launched")]
@@ -347,17 +352,17 @@ def ship_angles_scene(tTorpVel, tShipVel):
 
 def test_ship_angles_zero_ship_velocity():
 	App, AF, core, pT = ship_angles_scene((10.0, 0.0, 0.0), (0.0, 0.0, 0.0))
-	assert AF.TorpShipAngles(pT, (20.0, 0.0, 0.0)) == " rel-point 0.0 deg own-shift 0.0 deg"
-	assert AF.TorpPointAngle(pT, (20.0, 0.0, 0.0)) == " toward-point 0.0 deg"
-	assert AF.TorpShipAngles(pT, (0.0, 5.0, 0.0)) == " rel-point 90.0 deg own-shift 0.0 deg"
+	assert TD.TorpShipAngles(pT, (20.0, 0.0, 0.0)) == " rel-point 0.0 deg own-shift 0.0 deg"
+	assert TD.TorpPointAngle(pT, (20.0, 0.0, 0.0)) == " toward-point 0.0 deg"
+	assert TD.TorpShipAngles(pT, (0.0, 5.0, 0.0)) == " rel-point 90.0 deg own-shift 0.0 deg"
 
 
 def test_ship_angles_inherited_velocity():
 	# the torpedo flies (17, 1.7, 0): the tube direction (17, 0, 0) plus the ship's (0, 1.7, 0)
 	App, AF, core, pT = ship_angles_scene((17.0, 1.7, 0.0), (0.0, 1.7, 0.0))
-	sRel = AF.TorpShipAngles(pT, (20.0, 0.0, 0.0))
+	sRel = TD.TorpShipAngles(pT, (20.0, 0.0, 0.0))
 	assert sRel == " rel-point 0.0 deg own-shift 5.7 deg", sRel
-	assert AF.TorpPointAngle(pT, (20.0, 0.0, 0.0)) == " toward-point 5.7 deg"
+	assert TD.TorpPointAngle(pT, (20.0, 0.0, 0.0)) == " toward-point 5.7 deg"
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(pT))
 	l = [x[1] for x in core.logs if x[1].startswith("Torpedo launched")]
 	assert len(l) == 1 and l[0].endswith(" toward-point 5.7 deg rel-point 0.0 deg own-shift 5.7 deg tube-h ? tube-v ? tube-ang ? eng-ang ? tubes [] decision none"), l
@@ -366,12 +371,12 @@ def test_ship_angles_inherited_velocity():
 def test_ship_angles_unavailable():
 	App, AF, core, pT = ship_angles_scene((10.0, 0.0, 0.0), (10.0, 0.0, 0.0))
 	# torpedo velocity equals the ship's: no relative velocity, no shift
-	assert AF.TorpShipAngles(pT, (20.0, 0.0, 0.0)) == " rel-point ? own-shift ?"
+	assert TD.TorpShipAngles(pT, (20.0, 0.0, 0.0)) == " rel-point ? own-shift ?"
 	App.ShipClass_GetObjectByID = lambda n, i: None
-	assert AF.TorpShipAngles(pT, (20.0, 0.0, 0.0)) == " rel-point ? own-shift ?"
+	assert TD.TorpShipAngles(pT, (20.0, 0.0, 0.0)) == " rel-point ? own-shift ?"
 	App, AF, core, pT = ship_angles_scene((10.0, 0.0, 0.0), (0.0, 1.0, 0.0))
-	assert AF.TorpShipAngles(pT, (0.0, 0.0, 0.0)) == " rel-point ? own-shift 5.7 deg"
-	assert AF.TorpShipAngles(pT, None).startswith(" rel-point ? own-shift ")
+	assert TD.TorpShipAngles(pT, (0.0, 0.0, 0.0)) == " rel-point ? own-shift 5.7 deg"
+	assert TD.TorpShipAngles(pT, None).startswith(" rel-point ? own-shift ")
 
 
 class _Tube:
@@ -420,8 +425,8 @@ def tube_scene(lTubes, lPulse):
 	App.ShipClass_GetObjectByID = lambda n, i: pOwn if i == 7 else pTarget
 	App.TorpedoTube_Cast = lambda o: o
 	App.PulseWeapon_Cast = lambda o: o
-	AF.g_dPulseLast = {}
-	AF.g_iPulseLines = 0
+	TD.g_dPulseLast = {}
+	TD.g_iPulseLines = 0
 	return App, AF, core, clock, pT, pTarget
 
 
@@ -429,11 +434,11 @@ def test_tube_box_angles():
 	import math
 	fT = math.tan(math.radians(20.0))
 	App, AF, core, clock, pT, pTarget = tube_scene([_Tube((0.0, 0.0, 0.0), X, Y, Z)], [])
-	s = AF.TorpTubeAngles(pT, (20.0, 20.0 * fT, 20.0 * fT))
+	s = TD.TorpTubeAngles(pT, (20.0, 20.0 * fT, 20.0 * fT))
 	fAng = math.degrees(math.atan(math.sqrt(2.0) * fT))
 	assert s == " tube-h 20.0 tube-v 20.0 tube-ang %.1f" % fAng, s
 	assert s.endswith("27.2"), s	# atan(sqrt(2) * tan 20) = 27.2
-	s = AF.TorpTubeAngles(pT, (20.0, -20.0 * fT, 0.0))
+	s = TD.TorpTubeAngles(pT, (20.0, -20.0 * fT, 0.0))
 	assert s == " tube-h -20.0 tube-v 0.0 tube-ang 20.0", s
 
 
@@ -442,22 +447,22 @@ def test_nearest_tube_selected():
 	App, AF, core, clock, pT, pTarget = tube_scene(lT, [])
 	pT.pos = [2.0, 0.0, 0.0]
 	# the second tube (nearest) looks along +y: a point on +y is dead ahead for it
-	s = AF.TorpTubeAngles(pT, (1.0, 10.0, 0.0))
+	s = TD.TorpTubeAngles(pT, (1.0, 10.0, 0.0))
 	assert s == " tube-h 0.0 tube-v 0.0 tube-ang 0.0", s
 	pT.pos = [49.0, 0.0, 0.0]
-	s = AF.TorpTubeAngles(pT, (100.0, 0.0, 0.0))
+	s = TD.TorpTubeAngles(pT, (100.0, 0.0, 0.0))
 	assert s == " tube-h 0.0 tube-v 0.0 tube-ang 0.0", s
 
 
 def test_tube_angles_unavailable():
 	App, AF, core, clock, pT, pTarget = tube_scene([], [])
 	q = " tube-h ? tube-v ? tube-ang ?"
-	assert AF.TorpTubeAngles(pT, (20.0, 0.0, 0.0)) == q
+	assert TD.TorpTubeAngles(pT, (20.0, 0.0, 0.0)) == q
 	App, AF, core, clock, pT, pTarget = tube_scene([_Tube((0.0, 0.0, 0.0), X, Y, Z)], [])
-	assert AF.TorpTubeAngles(pT, None) == q
-	assert AF.TorpTubeAngles(pT, (0.0, 0.0, 0.0)) == q
+	assert TD.TorpTubeAngles(pT, None) == q
+	assert TD.TorpTubeAngles(pT, (0.0, 0.0, 0.0)) == q
 	App.ShipClass_GetObjectByID = lambda n, i: None
-	assert AF.TorpTubeAngles(pT, (20.0, 0.0, 0.0)) == q
+	assert TD.TorpTubeAngles(pT, (20.0, 0.0, 0.0)) == q
 
 
 def test_launch_line_ends_with_tube_angles():
@@ -498,7 +503,7 @@ def test_tube_list_fired_ready_and_canhit():
 		_CTube((70.0, 0.0, 0.0), Y, 1, None)]
 	App, AF, core, pT, pTarget = diag_scene(lT)
 	pT.pos = [2.0, 0.0, 0.0]
-	s = AF.TorpTubeDiag(pT, (20.0, 0.0, 0.0))
+	s = TD.TorpTubeDiag(pT, (20.0, 0.0, 0.0))
 	fEng = math.degrees(math.atan(20.0 / 11.0 / 19.0))	# P' = (20, 20/11, 0) seen from (1, 0, 0)
 	sEng = "%.1f" % fEng
 	fY = 20.0 / 11.0
@@ -513,10 +518,10 @@ def test_tube_list_zero_target_velocity_eng_equals_ang():
 	App, AF, core, pT, pTarget = diag_scene(lT)
 	pTarget.vel = [0.0, 0.0, 0.0]
 	pT.pos = [1.0, 0.0, 0.0]
-	s = AF.TorpTubeDiag(pT, (20.0, 0.0, 0.0))
+	s = TD.TorpTubeDiag(pT, (20.0, 0.0, 0.0))
 	assert s == " eng-ang 90.0 tubes [0*:90.0/1/90.0]", s
 	lT[0].f = X
-	s = AF.TorpTubeDiag(pT, (20.0, 0.0, 0.0))
+	s = TD.TorpTubeDiag(pT, (20.0, 0.0, 0.0))
 	assert s == " eng-ang 0.0 tubes [0*:0.0/1/0.0]", s
 
 
@@ -526,7 +531,7 @@ def test_tube_list_capped_at_16_keeping_fired():
 		lT.append(_CTube((float(i), 0.0, 0.0), X, 1, 1))
 	App, AF, core, pT, pTarget = diag_scene(lT)
 	pT.pos = [19.0, 0.0, 0.0]
-	s = AF.TorpTubeDiag(pT, (20.0, 0.0, 0.0))
+	s = TD.TorpTubeDiag(pT, (20.0, 0.0, 0.0))
 	l = s[s.find("[") + 1:s.find("]")].split(" ")
 	assert len(l) == 16 and l[0].startswith("0:") and l[14].startswith("14:") and l[15].startswith("19*:"), l
 
@@ -534,15 +539,15 @@ def test_tube_list_capped_at_16_keeping_fired():
 def test_tube_list_unavailable_is_question_marks():
 	lT = [_CTube((1.0, 0.0, 0.0), X, 1, 1)]
 	App, AF, core, pT, pTarget = diag_scene(lT)
-	s = AF.TorpTubeDiag(pT, None)
+	s = TD.TorpTubeDiag(pT, None)
 	assert s.startswith(" eng-ang ") and "tubes [0*:?/1/" in s, s
 	pTarget.GetVelocityTG = lambda: 5	# unusable: no engine point
-	s = AF.TorpTubeDiag(pT, (20.0, 0.0, 0.0))
+	s = TD.TorpTubeDiag(pT, (20.0, 0.0, 0.0))
 	assert s == " eng-ang ? tubes [0*:0.0/1/?]", s
 	App.ShipClass_GetObjectByID = lambda n, i: None
-	assert AF.TorpTubeDiag(pT, (20.0, 0.0, 0.0)) == " eng-ang ? tubes []"
+	assert TD.TorpTubeDiag(pT, (20.0, 0.0, 0.0)) == " eng-ang ? tubes []"
 	AF.GetSolution = lambda: None
-	assert AF.TorpTubeDiag(pT, (20.0, 0.0, 0.0)) == " eng-ang ? tubes []"
+	assert TD.TorpTubeDiag(pT, (20.0, 0.0, 0.0)) == " eng-ang ? tubes []"
 
 
 class _BSol(_TSol):
@@ -570,7 +575,7 @@ def test_pulse_line_for_unguided():
 	assert len(l) == 1, l
 	assert l[0] == "Pulse launched: mod PulsePhaser dist 20.00 km vel-target 0.0 deg vel-point 0.0 deg weapon-target 0.0 deg vel-weapon 0.0 deg w-h 0.0 deg w-v 0.0 deg", l
 	assert [x for x in core.logs if x[1].startswith("Torpedo launched")] == []
-	assert AF.g_lTorpWatch == []
+	assert TD.g_lTorpWatch == []
 
 
 def test_pulse_line_offset_target_and_unavailable():
@@ -631,20 +636,20 @@ def Dist(l):
 def test_closest_time_in_summary():
 	App, AF, core, clock, pT, pTarget = prediction_scene()
 	# the mock points have no Subtract/Length: measure the distance to (20, 0, 0) here
-	AF.TorpMeasure = lambda p: (5, Dist(pT.pos), 1.0)
+	TD.TorpMeasure = lambda p: (5, Dist(pT.pos), 1.0)
 	AF.OnTorpedoLaunched(FakeObj(), FakeEvent(pT))
 	clock[0] = 1.0
 	pT.pos = [10.0, 0.0, 0.0]
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	clock[0] = 2.0
 	pT.pos = [19.0, 0.0, 0.0]
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	clock[0] = 2.5
 	pT.pos = [19.0, 4.0, 0.0]	# moving away: the closest time stays 2.0
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	App.Torpedo_GetObjectByID = lambda n, i: None
 	clock[0] = 2.6
-	AF.TorpFollowUp()
+	TD.TorpFollowUp()
 	l = [x[1] for x in core.logs if x[1].startswith("Torpedo 70 ended")]
 	assert len(l) == 1, l
 	assert " at 2.0 s (predicted arrival 2.0 s)" in l[0], l
@@ -653,7 +658,7 @@ def test_closest_time_in_summary():
 def test_summary_with_15_field_entry():
 	App, AF, core, clock, pT, pTarget = prediction_scene()
 	lE = [70, 5, 0.0, 1.0, 1.0, 0.0, 0, 5, None, "m", None, None, 0.0, None, None]
-	s = AF.TorpSummary(lE, 1.0)
+	s = TD.TorpSummary(lE, 1.0)
 	assert "closest 1.00 km" in s and "closest 1.00 km at" not in s and "(predicted arrival" not in s, s
 
 

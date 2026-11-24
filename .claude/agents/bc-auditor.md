@@ -44,7 +44,9 @@ Binary patch mode (when the change is a patch/hook for `stbc.exe` or a proxy DLL
 - Report adds `PATCH:` lines per site (OK / FAIL + reason). Never run the patched game yourself.
 
 Crash analysis mode (when given a crash): read the tail of
-`D:\GOG Games\Star Trek Bridge Commander\stbc.RPT` (time + exception code), correlate with the
+`D:\GOG Games\Star Trek Bridge Commander\stbc.RPT` (time + exception code) and, if the log was on,
+the end of the last session (`python tools/gamelog.py sessions`, then `show --from T` near the
+end: the last lines show what ran before the crash), correlate with the
 last installed change (`git log -3 --stat`) and the user's description; list the most likely
 causes from the checklist above, ranked. If no cause is clearly most likely, end the report
 with `ESCALATE: bc-architect` plus the dossier lines you gathered (RPT time + code, last change,

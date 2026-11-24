@@ -40,6 +40,7 @@ BUTTON_TEXT = "Auto Fire"
 g_pCore = None
 g_bArcLogged = 0	# 1 once an IsInArc failure was logged (no per-tick spam)
 g_dFtLog = {}		# (target ID, kind, sec) -> game time of the last flight-time log line (Debug only)
+g_dSpreadOK = {}	# target ID -> 1 when a tube's shot at it qualifies for spread (set by ArcScore, read by ApplySpread)
 g_bFtSpeedLogged = 0	# 1 once an unknown projectile speed was logged (Debug only)
 g_iOn = 0		# switched on by the player
 g_iShipID = None	# player ship it was switched on for
@@ -60,12 +61,7 @@ g_iSpreadShipID = None	# ship whose spread Auto Fire changed
 g_dArcReady = {}	# (weapon ID, target ID) -> 1 while 'ready' for that target (arc percent hysteresis, pulse and torpedo)
 g_dArcSec = {}		# weapon group -> IDs of the secondaries of its last plan (their hysteresis keys survive ArcSettle)
 g_dPlanNote = {}	# weapon group -> last plan line logged (Debug only, logged on change)
-g_dPulseLast = {}	# Debug only: module name -> game time of its last pulse launch line
-g_iPulseLines = 0	# Debug only: pulse launch lines written this session (max 80)
 g_tTorpDecision = None	# Debug only: (game time, target ID, depth percent, allowed percent, 3D angle, h, v, secondary) of the last allowed torpedo tube decision
-g_lTorpWatch = []	# Debug only: [ID, target, launch time, min dist, last dist, last time, grew, last target, radius, module, time the target was gone or None, predicted point or None, predicted flight time, target velocity at launch, sample at the predicted arrival or None, seconds after launch when the min dist was last lowered or None] being followed
-g_bTorpLookup = 0	# Debug only: 1 once Torpedo_GetObjectByID failed (logged once)
-g_lTorpList = None	# Debug only: [head ID or None, secondary IDs, game time] of the torpedo group's list
 g_dSecHead = {}		# held torpedo/pulse/phaser group -> ID of the secondary it was started at (no main shot)
 g_bTorpPlanLogged = 0	# 1 once a torpedo plan error was logged
 
@@ -77,40 +73,33 @@ g_fPhaserMinCharge = 50.0
 g_fPhaserRange = 100.0
 g_iTorpedoReserve = 0
 g_iTorpedoRule = 2		# 1 = arc percent only, 2 = plus the flight-time filter
-g_fSpreadMinSolution = 85.0
-g_fSpreadMinDistance = 0.0
+g_bHoldOnWarp = 1		# HoldOnWarp (WarpHold.py)
+g_fWarpGrace = 1.0		# WarpHoldGrace, seconds
+g_fSpreadFtMin = 1.5		# SpreadFlightTimeMin, seconds
+g_fSpreadFtMax = 2.5		# SpreadFlightTimeMax, seconds (0 = no upper bound)
+g_fSpreadArcPercent = 35.0	# SpreadArcPercent, percent 0-100 (depth*100 limit for a spread shot)
+g_fArcFtNear = 0.5		# ArcFlightTimeNear, seconds
+g_fArcFtFar = 1.5		# ArcFlightTimeFar, seconds
 g_iPulseRule = 2		# same, for pulse weapons
 g_iTapFire = 1
 g_iSecondaryTorpedoes = 1
 g_iSecondaryPhasers = 1
-g_fArcFar = 50.0		# PulseArcPercentFar
+g_fArcFar = 70.0		# PulseArcPercentFar
 g_fArcNear = 90.0		# PulseArcPercentNear
-g_fArcFarDistance = 171.0	# PulseArcFarDistance, world units
-g_fArcNearDistance = 29.0	# PulseArcNearDistance, world units
 g_fArcHysteresis = 10.0		# PulseArcHysteresis, percentage points
 g_iTorpArcShape = 1		# TorpedoArcShape: 1 = cone depth, 0 = box depth
 g_iPulseArcShape = 1		# PulseArcShape: 1 = ellipse depth, 0 = box depth
-g_fTorpArcFar = 50.0		# TorpedoArcPercentFar
+g_fTorpArcFar = 70.0		# TorpedoArcPercentFar
 g_fTorpArcNear = 90.0		# TorpedoArcPercentNear
-g_fTorpArcFarDistance = 171.0	# TorpedoArcFarDistance, world units
-g_fTorpArcNearDistance = 29.0	# TorpedoArcNearDistance, world units
 g_fTorpArcHysteresis = 10.0	# TorpedoArcHysteresis, percentage points
-g_fArcFarSec = 50.0		# PulseArcPercentFarSecondary
+g_fArcFarSec = 70.0		# PulseArcPercentFarSecondary
 g_fArcNearSec = 90.0		# PulseArcPercentNearSecondary
-g_fArcFarDistanceSec = 171.0	# PulseArcFarDistanceSecondary, world units
-g_fArcNearDistanceSec = 29.0	# PulseArcNearDistanceSecondary, world units
-g_fTorpArcFarSec = 50.0		# TorpedoArcPercentFarSecondary
+g_fTorpArcFarSec = 70.0		# TorpedoArcPercentFarSecondary
 g_fTorpArcNearSec = 90.0	# TorpedoArcPercentNearSecondary
-g_fTorpArcFarDistanceSec = 171.0	# TorpedoArcFarDistanceSecondary, world units
-g_fTorpArcNearDistanceSec = 29.0	# TorpedoArcNearDistanceSecondary, world units
-g_fTorpFtFar = 0.0		# TorpedoFlightTimeFar, seconds (0 = filter off)
-g_fTorpFtNear = 0.0		# TorpedoFlightTimeNear
-g_fFtFar = 0.0			# PulseFlightTimeFar
-g_fFtNear = 0.0			# PulseFlightTimeNear
-g_fTorpFtFarSec = 0.0		# TorpedoFlightTimeFarSecondary
-g_fTorpFtNearSec = 0.0		# TorpedoFlightTimeNearSecondary
-g_fFtFarSec = 0.0		# PulseFlightTimeFarSecondary
-g_fFtNearSec = 0.0		# PulseFlightTimeNearSecondary
+g_fTorpFtLimit = 0.0		# TorpedoFlightTimeLimit, seconds (0 = filter off)
+g_fFtLimit = 0.0		# PulseFlightTimeLimit
+g_fTorpFtLimitSec = 0.0		# TorpedoFlightTimeLimitSecondary
+g_fFtLimitSec = 0.0		# PulseFlightTimeLimitSecondary
 ARC_MINIMUM = 1.0	# lowest arc score that fires (any weapon inside the allowed percent)
 PULSE_ARC_LIFETIME = 0	# 1 = pulse rule 3 also drops shots beyond the projectile lifetime (off: as before)
 
@@ -140,48 +129,44 @@ def LoadConfig():
 	# the code that used to read them each cycle).
 	global g_bDebug, g_iTargetMode, g_fPhaserMinCharge, g_fPhaserRange
 	global g_iTorpedoReserve, g_iTorpedoRule
-	global g_fSpreadMinSolution, g_fSpreadMinDistance
+	global g_fSpreadFtMin, g_fSpreadFtMax, g_fArcFtNear, g_fArcFtFar, g_fSpreadArcPercent
 	global g_iPulseRule, g_iTapFire, g_bArcLogged, g_dFtLog, g_bFtSpeedLogged
-	global g_fTorpFtFar, g_fTorpFtNear, g_fFtFar, g_fFtNear
-	global g_fTorpFtFarSec, g_fTorpFtNearSec, g_fFtFarSec, g_fFtNearSec
-	global g_fArcFar, g_fArcNear, g_fArcFarDistance, g_fArcNearDistance, g_fArcHysteresis
+	global g_fTorpFtLimit, g_fFtLimit, g_fTorpFtLimitSec, g_fFtLimitSec
+	global g_fArcFar, g_fArcNear, g_fArcHysteresis
 	global g_iSecondaryTorpedoes, g_bTorpPlanLogged, g_dPlanNote, g_iSecondaryPhasers
-	global g_fTorpArcFar, g_fTorpArcNear, g_fTorpArcFarDistance, g_fTorpArcNearDistance, g_fTorpArcHysteresis
-	global g_fArcFarSec, g_fArcNearSec, g_fArcFarDistanceSec, g_fArcNearDistanceSec
-	global g_fTorpArcFarSec, g_fTorpArcNearSec, g_fTorpArcFarDistanceSec, g_fTorpArcNearDistanceSec
-	global g_iTorpArcShape, g_iPulseArcShape
+	global g_fTorpArcFar, g_fTorpArcNear, g_fTorpArcHysteresis
+	global g_fArcFarSec, g_fArcNearSec
+	global g_fTorpArcFarSec, g_fTorpArcNearSec
+	global g_iTorpArcShape, g_iPulseArcShape, g_dSpreadOK, g_bHoldOnWarp, g_fWarpGrace
 	pConfig = GetConfig()
+	g_bHoldOnWarp = int(getattr(pConfig, "HoldOnWarp", 1))
+	g_fWarpGrace = float(getattr(pConfig, "WarpHoldGrace", 1.0))
+	try:
+		GetWarpHold().Reset()
+	except:
+		pass
 	g_dPlanNote = {}
-	g_fTorpArcFar = float(getattr(pConfig, "TorpedoArcPercentFar", 50))
+	g_dSpreadOK = {}
+	g_fArcFtNear = float(getattr(pConfig, "ArcFlightTimeNear", 0.5))
+	g_fArcFtFar = float(getattr(pConfig, "ArcFlightTimeFar", 1.5))
+	g_fTorpArcFar = float(getattr(pConfig, "TorpedoArcPercentFar", 70))
 	g_fTorpArcNear = float(getattr(pConfig, "TorpedoArcPercentNear", 90))
-	g_fTorpArcFarDistance = KilometersToUnits(float(getattr(pConfig, "TorpedoArcFarDistance", 30)))
-	g_fTorpArcNearDistance = KilometersToUnits(float(getattr(pConfig, "TorpedoArcNearDistance", 5)))
 	g_fTorpArcHysteresis = float(getattr(pConfig, "TorpedoArcHysteresis", 10))
-	g_fArcFar = float(getattr(pConfig, "PulseArcPercentFar", 50))
+	g_fArcFar = float(getattr(pConfig, "PulseArcPercentFar", 70))
 	g_fArcNear = float(getattr(pConfig, "PulseArcPercentNear", 90))
-	g_fArcFarDistance = KilometersToUnits(float(getattr(pConfig, "PulseArcFarDistance", 30)))
-	g_fArcNearDistance = KilometersToUnits(float(getattr(pConfig, "PulseArcNearDistance", 5)))
 	g_fArcHysteresis = float(getattr(pConfig, "PulseArcHysteresis", 10))
 	g_iTorpArcShape = int(getattr(pConfig, "TorpedoArcShape", 1))
 	g_iPulseArcShape = int(getattr(pConfig, "PulseArcShape", 1))
 	# secondary bands: a missing setting falls back to the main value
-	g_fTorpArcFarSec = float(getattr(pConfig, "TorpedoArcPercentFarSecondary", getattr(pConfig, "TorpedoArcPercentFar", 50)))
-	g_fTorpArcNearSec = float(getattr(pConfig, "TorpedoArcPercentNearSecondary", getattr(pConfig, "TorpedoArcPercentNear", 90)))
-	g_fTorpArcFarDistanceSec = KilometersToUnits(float(getattr(pConfig, "TorpedoArcFarDistanceSecondary", getattr(pConfig, "TorpedoArcFarDistance", 30))))
-	g_fTorpArcNearDistanceSec = KilometersToUnits(float(getattr(pConfig, "TorpedoArcNearDistanceSecondary", getattr(pConfig, "TorpedoArcNearDistance", 5))))
-	g_fArcFarSec = float(getattr(pConfig, "PulseArcPercentFarSecondary", getattr(pConfig, "PulseArcPercentFar", 50)))
-	g_fArcNearSec = float(getattr(pConfig, "PulseArcPercentNearSecondary", getattr(pConfig, "PulseArcPercentNear", 90)))
-	g_fArcFarDistanceSec = KilometersToUnits(float(getattr(pConfig, "PulseArcFarDistanceSecondary", getattr(pConfig, "PulseArcFarDistance", 30))))
-	g_fArcNearDistanceSec = KilometersToUnits(float(getattr(pConfig, "PulseArcNearDistanceSecondary", getattr(pConfig, "PulseArcNearDistance", 5))))
+	g_fTorpArcFarSec = float(getattr(pConfig, "TorpedoArcPercentFarSecondary", g_fTorpArcFar))
+	g_fTorpArcNearSec = float(getattr(pConfig, "TorpedoArcPercentNearSecondary", g_fTorpArcNear))
+	g_fArcFarSec = float(getattr(pConfig, "PulseArcPercentFarSecondary", g_fArcFar))
+	g_fArcNearSec = float(getattr(pConfig, "PulseArcPercentNearSecondary", g_fArcNear))
 	# flight-time limits (seconds, 0 = off); a missing setting = off, a missing secondary one = the primary
-	g_fTorpFtFar = float(getattr(pConfig, "TorpedoFlightTimeFar", 0))
-	g_fTorpFtNear = float(getattr(pConfig, "TorpedoFlightTimeNear", 0))
-	g_fFtFar = float(getattr(pConfig, "PulseFlightTimeFar", 0))
-	g_fFtNear = float(getattr(pConfig, "PulseFlightTimeNear", 0))
-	g_fTorpFtFarSec = float(getattr(pConfig, "TorpedoFlightTimeFarSecondary", g_fTorpFtFar))
-	g_fTorpFtNearSec = float(getattr(pConfig, "TorpedoFlightTimeNearSecondary", g_fTorpFtNear))
-	g_fFtFarSec = float(getattr(pConfig, "PulseFlightTimeFarSecondary", g_fFtFar))
-	g_fFtNearSec = float(getattr(pConfig, "PulseFlightTimeNearSecondary", g_fFtNear))
+	g_fTorpFtLimit = float(getattr(pConfig, "TorpedoFlightTimeLimit", 0))
+	g_fFtLimit = float(getattr(pConfig, "PulseFlightTimeLimit", 0))
+	g_fTorpFtLimitSec = float(getattr(pConfig, "TorpedoFlightTimeLimitSecondary", g_fTorpFtLimit))
+	g_fFtLimitSec = float(getattr(pConfig, "PulseFlightTimeLimitSecondary", g_fFtLimit))
 	g_dFtLog = {}
 	g_bFtSpeedLogged = 0
 	ForgetArc()
@@ -191,8 +176,9 @@ def LoadConfig():
 	g_iTorpedoReserve = int(getattr(pConfig, "TorpedoReserve", 0))
 	# rule 1 = arc percent only; anything else (2, a legacy 3, ...) = rule 2
 	g_iTorpedoRule = NormRule(getattr(pConfig, "TorpedoRule", 2))
-	g_fSpreadMinSolution = float(getattr(pConfig, "SpreadMinSolution", 85))
-	g_fSpreadMinDistance = float(getattr(pConfig, "SpreadMinDistance", 0))
+	g_fSpreadFtMin = float(getattr(pConfig, "SpreadFlightTimeMin", 1.5))
+	g_fSpreadFtMax = float(getattr(pConfig, "SpreadFlightTimeMax", 2.5))
+	g_fSpreadArcPercent = float(getattr(pConfig, "SpreadArcPercent", 35))
 	g_iPulseRule = NormRule(getattr(pConfig, "PulseRule", 2))
 	g_iTapFire = int(getattr(pConfig, "TapFire", 1))
 	g_iSecondaryTorpedoes = int(getattr(pConfig, "SecondaryTorpedoes", 1))
@@ -637,6 +623,7 @@ def BestTorpedoScore(pShip, pSystem, pTarget):
 	# an unready tube).
 	vOffset = GetOffset(pShip, pTarget)
 	tShot = TorpedoShot(pShip, pSystem, pTarget, vOffset)
+	ForgetSpreadNote(pTarget.GetObjID())
 	fBest = 0.0
 	for iChild in range(pSystem.GetNumChildSubsystems()):
 		pTube = App.TorpedoTube_Cast(pSystem.GetChildSubsystem(iChild))
@@ -676,7 +663,7 @@ def TorpedoTarget(pShip, pTorpedoes, lTargets, eGroup):
 	g_dScore[eGroup] = fBest
 	if fBest >= ARC_MINIMUM:
 		ArcSettle(pTorpedoes, ArcKeep(eGroup, pBest.GetObjID()))
-		ApplySpread(pShip, pTorpedoes, pBest, fBest)
+		ApplySpread(pShip, pTorpedoes, pBest)
 		return pBest
 	ArcSettle(pTorpedoes, ArcKeep(eGroup, None))
 	return None
@@ -823,6 +810,7 @@ def SecondaryTorpedoPlan(pShip, pTorpedoes, pMain, bMainShot):
 					vPoint = pCandidate.GetWorldLocation()
 					if bMainShot or (not AnyTubeInArc(lMainReady, vPoint)):
 						fBest = -1.0
+						ForgetSpreadNote(iID)
 						tShot = TorpedoShot(pShip, pTorpedoes, pCandidate, None)
 						for iTube in range(len(lFree)):
 							pTube = lFree[iTube]
@@ -860,7 +848,7 @@ def PlanTorpedoGroup(pShip, pTorpedoes, pTarget, lTargets, eGroup):
 	if not IsLive(pHead):
 		return (None, [], 0)
 	g_dScore[eGroup] = lPlan[0][0]
-	ApplySpread(pShip, pTorpedoes, pHead, 0.0)
+	ApplySpread(pShip, pTorpedoes, pHead)
 	lIDs = []
 	for tEntry in lPlan[1:]:
 		lIDs.append(tEntry[1])
@@ -1120,14 +1108,67 @@ def KilometersToUnits(fKilometers):
 		return fKilometers / 0.175
 
 
-def ApplySpread(pShip, pTorpedoes, pTarget, fScore):
+def TorpedoSpeed(pTorpedoes):
+	# Launch speed of the system's current torpedo (world units / s), 0.0 if unknown.
+	try:
+		return float(GetSolution().GetProjectileInfo(None, pTorpedoes)[0])
+	except:
+		return 0.0
+
+
+def SpreadAllowed(fDistance, fSpeed):
+	# 1 when the flight time (distance / speed) is inside the spread interval
+	# SpreadFlightTimeMin..SpreadFlightTimeMax (Max 0 = no upper bound). Speed
+	# unknown: 0.
+	if fSpeed <= 0.0:
+		return 0
+	fFlight = fDistance / fSpeed
+	if fFlight < g_fSpreadFtMin:
+		return 0
+	if (g_fSpreadFtMax > 0.0) and (fFlight > g_fSpreadFtMax):
+		return 0
+	return 1
+
+
+def ForgetSpreadNote(iTarget):
+	# Start of a new scoring of the target: drop the last spread verdict.
+	if g_dSpreadOK.has_key(iTarget):
+		del g_dSpreadOK[iTarget]
+
+
+def NoteSpread(iTarget, bSpread):
+	# A tube passed for the target: record the verdict (1 wins over 0).
+	if bSpread or (not g_dSpreadOK.has_key(iTarget)):
+		g_dSpreadOK[iTarget] = bSpread
+
+
+def SpreadShot(pTorpedoes, fDistance, fSpeed, fDepth=0.0):
+	# 1 when a torpedo shot would go out as spread: a spread chain exists, the
+	# flight time is inside the spread window AND depth*100 <= SpreadArcPercent
+	# (fixed, no hysteresis; fDepth is the same value ArcScore judges). Used by
+	# ArcScore (to bypass the flight-time limit) and, through g_dSpreadOK, by
+	# ApplySpread: one decision, one distance (tube to lead point).
+	try:
+		if pTorpedoes.GetNumFiringChains() - 1 <= 0:
+			return 0	# no spread chain: the shot would go out Single
+	except:
+		return 0
+	if fDepth * 100.0 > g_fSpreadArcPercent:
+		return 0	# too far off the tube axis for a spread: judged as Single
+	return SpreadAllowed(fDistance, fSpeed)
+
+
+def ApplySpread(pShip, pTorpedoes, pTarget):
 	# Spread torpedoes leave in a fan and only turn to the target after a
-	# while: closer than SpreadMinDistance they would fly past it.
+	# while: too close (flight time under SpreadFlightTimeMin) they would fly
+	# past it, too far (over SpreadFlightTimeMax) the fan is too wide.
 	global g_iPlayerSpread, g_iSetSpread, g_iSpreadShipID
 	iWant = 0
-	if fScore >= g_fSpreadMinSolution:
-		fMinimum = KilometersToUnits(g_fSpreadMinDistance)
-		if GetDistance(pShip, pTarget) >= fMinimum:
+	iTargetID = pTarget.GetObjID()
+	if g_dSpreadOK.has_key(iTargetID):
+		# The decision ArcScore took for the shots just scored (tube to lead
+		# point distance, the same one the flight-time filter used).
+		if g_dSpreadOK[iTargetID]:
 			iWant = pTorpedoes.GetNumFiringChains() - 1
 	if iWant < 0:
 		iWant = 0
@@ -1185,32 +1226,38 @@ def ForgetArc():
 
 
 def ArcBand(sKind, bSecondary=0):
-	# ((far percent, near percent, far distance, near distance), hysteresis) of
-	# the arc-percent rule of this kind ("pulse" or "torpedo"). bSecondary: the
-	# band of secondary targets (hysteresis stays shared).
+	# ((far percent, near percent, far flight time, near flight time),
+	# hysteresis) of the arc-percent rule of this kind ("pulse" or "torpedo").
+	# bSecondary: the band of secondary targets (hysteresis and the flight
+	# times stay shared).
 	if bSecondary:
 		if sKind == "torpedo":
-			return ((g_fTorpArcFarSec, g_fTorpArcNearSec, g_fTorpArcFarDistanceSec, g_fTorpArcNearDistanceSec), g_fTorpArcHysteresis)
-		return ((g_fArcFarSec, g_fArcNearSec, g_fArcFarDistanceSec, g_fArcNearDistanceSec), g_fArcHysteresis)
+			return ((g_fTorpArcFarSec, g_fTorpArcNearSec, g_fArcFtFar, g_fArcFtNear), g_fTorpArcHysteresis)
+		return ((g_fArcFarSec, g_fArcNearSec, g_fArcFtFar, g_fArcFtNear), g_fArcHysteresis)
 	if sKind == "torpedo":
-		return ((g_fTorpArcFar, g_fTorpArcNear, g_fTorpArcFarDistance, g_fTorpArcNearDistance), g_fTorpArcHysteresis)
-	return ((g_fArcFar, g_fArcNear, g_fArcFarDistance, g_fArcNearDistance), g_fArcHysteresis)
+		return ((g_fTorpArcFar, g_fTorpArcNear, g_fArcFtFar, g_fArcFtNear), g_fTorpArcHysteresis)
+	return ((g_fArcFar, g_fArcNear, g_fArcFtFar, g_fArcFtNear), g_fArcHysteresis)
 
 
-def ArcAllowed(fDistance, tBand=None):
+def ArcAllowed(fDistance, fSpeed, tBand=None):
 	# Arc percent rule: percent of the arc (from its centre) the predicted point
-	# may use at this distance (world units): the Far percent at the Far
-	# distance and beyond, the Near percent at the Near distance and closer,
-	# linear in between (as the cone). tBand = (far %, near %, far distance,
-	# near distance); None = the pulse settings (PulseArc*).
+	# may use at this flight time (distance in world units / projectile speed):
+	# the Near percent at the Near flight time and less, the Far percent at the
+	# Far flight time and more, linear in between. Speed unknown (<= 0): the
+	# Near percent. tBand = (far %, near %, far time, near time); None = the
+	# pulse settings (PulseArc*).
 	if tBand == None:
 		tBand = ArcBand("pulse")[0]
-	if fDistance <= tBand[3]:
+	if fSpeed <= 0.0:
+		fFlight = 0.0
+	else:
+		fFlight = fDistance / fSpeed
+	if fFlight <= tBand[3]:
 		fAllowed = tBand[1]
-	elif fDistance >= tBand[2]:
+	elif fFlight >= tBand[2]:
 		fAllowed = tBand[0]
 	else:
-		fShare = (fDistance - tBand[3]) / (tBand[2] - tBand[3])
+		fShare = (fFlight - tBand[3]) / (tBand[2] - tBand[3])
 		fAllowed = tBand[1] + (tBand[0] - tBand[1]) * fShare
 	if fAllowed < 0.0:
 		fAllowed = 0.0
@@ -1220,40 +1267,26 @@ def ArcAllowed(fDistance, tBand=None):
 
 
 def FlightBand(sKind, bSecondary=0):
-	# (far seconds, near seconds) of the flight-time filter of this kind
-	# ("pulse" or "torpedo"); bSecondary: the secondary-target limits.
+	# The flight-time limit (seconds, 0 = off) of this kind ("pulse" or
+	# "torpedo"); bSecondary: the secondary-target limit.
 	if bSecondary:
 		if sKind == "torpedo":
-			return (g_fTorpFtFarSec, g_fTorpFtNearSec)
-		return (g_fFtFarSec, g_fFtNearSec)
+			return g_fTorpFtLimitSec
+		return g_fFtLimitSec
 	if sKind == "torpedo":
-		return (g_fTorpFtFar, g_fTorpFtNear)
-	return (g_fFtFar, g_fFtNear)
+		return g_fTorpFtLimit
+	return g_fFtLimit
 
 
-def FlightLimit(sKind, bSecondary, fDistance):
-	# Longest flight time (seconds) allowed at this distance (world units), or
-	# 0 = no limit (also when either the Far or the Near value is 0). Same
-	# distance points as the arc band of the same kind and main/secondary: the
-	# Near value at the Near distance and closer, the Far value at the Far
-	# distance and beyond, linear in between.
-	tTime = FlightBand(sKind, bSecondary)
-	if (tTime[0] <= 0.0) or (tTime[1] <= 0.0):
-		return 0.0
-	tBand = ArcBand(sKind, bSecondary)[0]
-	if fDistance <= tBand[3]:
-		fLimit = tTime[1]
-	elif fDistance >= tBand[2]:
-		fLimit = tTime[0]
-	else:
-		fShare = (fDistance - tBand[3]) / (tBand[2] - tBand[3])
-		fLimit = tTime[1] + (tTime[0] - tTime[1]) * fShare
+def FlightLimit(sKind, bSecondary):
+	# Longest flight time (seconds) allowed, or 0 = no limit.
+	fLimit = FlightBand(sKind, bSecondary)
 	if fLimit < 0.0:
 		fLimit = 0.0
 	return fLimit
 
 
-def FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance=0.0, fLifetime=0.0):
+def FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance=0.0, fLifetime=0.0, bSpread=0, fDepth=None):
 	# Rule 2 only: 1 when the estimated flight time (distance / projectile
 	# speed) is over the limit for that distance. The limit is the configured
 	# one PLUS the projectile's guidance time (it can still correct its course
@@ -1267,7 +1300,7 @@ def FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance=0.0, 
 		iRule = g_iPulseRule
 	if iRule != 2:
 		return 0
-	fLimit = FlightLimit(sKind, bSecondary, fDistance)
+	fLimit = FlightLimit(sKind, bSecondary)
 	if fLimit <= 0.0:
 		return 0
 	if fGuidance > 0.0:
@@ -1285,12 +1318,17 @@ def FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance=0.0, 
 	fEstimate = fDistance / fSpeed
 	if fEstimate <= fLimit:
 		return 0
+	if bSpread:
+		# bSpread: the shot goes out as spread (SpreadShot), independent of the limit.
+		if g_bDebug:
+			LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget, 1, fDepth)
+		return 0
 	if g_bDebug:
 		LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget)
 	return 1
 
 
-def LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget):
+def LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget, bBypass=0, fDepth=None):
 	# Debug only: the filter blocked a weapon; one line per target and kind at
 	# most every 2 seconds of game time.
 	if g_pCore == None:
@@ -1300,12 +1338,17 @@ def LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget):
 		sRole = "main"
 		if bSecondary:
 			sRole = "sec"
-		tKey = (iTarget, sKind, bSecondary)
+		tKey = (iTarget, sKind, bSecondary, bBypass)
 		if g_dFtLog.has_key(tKey) and (fNow - g_dFtLog[tKey] < 2.0):
 			return
 		g_dFtLog[tKey] = fNow
 		fKm = fDistance * KmPerUnit()
-		g_pCore.Log(NAME, "Flight time filter: " + sKind + " " + sRole + " est " + ("%.1f" % fEstimate) + " s > limit " + ("%.1f" % fLimit) + " s at " + str(int(fKm)) + " km")
+		sText = "Flight time filter: " + sKind + " " + sRole + " est " + ("%.1f" % fEstimate) + " s > limit " + ("%.1f" % fLimit) + " s at " + str(int(fKm)) + " km"
+		if bBypass:
+			sText = sText + ", passed as spread"
+			if fDepth != None:
+				sText = sText + " (depth " + ("%.0f" % (fDepth * 100.0)) + " <= spread arc " + ("%.0f" % g_fSpreadArcPercent) + ")"
+		g_pCore.Log(NAME, sText)
 	except:
 		pass
 
@@ -1351,6 +1394,19 @@ def WeaponReady(pWeapon, sKind):
 		return 0
 
 
+def GetWarpHold():
+	import Custom.Spaceframe.Modules.AutoFire.WarpHold
+	return Custom.Spaceframe.Modules.AutoFire.WarpHold
+
+
+def WarpHeld(pTarget):
+	# 1 when the target is warping / in its grace (WarpHold.py). Any error: 0.
+	try:
+		return GetWarpHold().Held(pTarget)
+	except:
+		return 0
+
+
 def ArcDrop(iKey):
 	# Forgets the hysteresis entry of one (weapon, target) pair.
 	if (iKey != None) and g_dArcReady.has_key(iKey):
@@ -1373,6 +1429,10 @@ def ArcScore(pShip, pSystem, pWeapon, pTarget, vOffset, sKind, bNeedReady, tFram
 	iKey = None
 	if iWeapon != None:
 		iKey = (iWeapon, iTarget)	# per (weapon, target): scoring B never touches A's entry
+	if bNeedReady and WarpHeld(pTarget):
+		# in-system warp (or its grace): auto fire only, manual fire is untouched
+		ArcDrop(iKey)
+		return 0.0
 	if bNeedReady and (not WeaponReady(pWeapon, sKind)):
 		ArcDrop(iKey)
 		return 0.0
@@ -1433,7 +1493,7 @@ def ArcScore(pShip, pSystem, pWeapon, pTarget, vOffset, sKind, bNeedReady, tFram
 			ArcDrop(iKey)
 			return 0.0
 	tBandHys = ArcBand(sKind, bSecondary)
-	fLimit = ArcAllowed(fDistance, tBandHys[0])
+	fLimit = ArcAllowed(fDistance, fSpeed, tBandHys[0])
 	# hysteresis <= 0 = off: no ready key is stored, nothing is added to the limit
 	if tBandHys[1] <= 0.0:
 		iKey = None
@@ -1442,16 +1502,22 @@ def ArcScore(pShip, pSystem, pWeapon, pTarget, vOffset, sKind, bNeedReady, tFram
 	if fLimit > 100.0:
 		fLimit = 100.0
 	if fDepth * 100.0 <= fLimit:
-		if FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance, fLifetime):
+		fScore = 100.0 * (1.0 - fDepth)
+		if fScore < 1.0:
+			fScore = 1.0
+		bSpread = 0
+		bAuto = (sKind == "torpedo") and bNeedReady	# not ArcReaches (manual fire): no spread decision
+		if bAuto:
+			bSpread = SpreadShot(pSystem, fDistance, fSpeed, fDepth)
+		if FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance, fLifetime, bSpread, fDepth):
 			ArcDrop(iKey)
 			return 0.0
+		if bAuto:
+			NoteSpread(iTarget, bSpread)
 		if iKey != None:
 			g_dArcReady[iKey] = 1
 		if g_bDebug and (sKind == "torpedo"):
 			NoteTorpDecision(tFrame, vPoint, iTarget, fDepth, fLimit, bSecondary)
-		fScore = 100.0 * (1.0 - fDepth)
-		if fScore < 1.0:
-			fScore = 1.0
 		return fScore
 	ArcDrop(iKey)
 	return 0.0
@@ -1593,23 +1659,17 @@ def IsTapped(pSystem):
 	return 0
 
 
+def GetTorpDiag():
+	import Custom.Spaceframe.Modules.AutoFire.TorpDiag
+	return Custom.Spaceframe.Modules.AutoFire.TorpDiag
+
+
 def NoteTorpList(pSystem, iHead, lSec):
 	# Debug only: remembers the torpedo group's target list (iHead None = emptied by
-	# StopFiring) and when it changed, for the launch log (OnTorpedoLaunched).
-	global g_lTorpList
+	# StopFiring) for the launch log (TorpDiag.py).
 	if not g_bDebug:
 		return
-	if App.TorpedoSystem_Cast(pSystem) == None:
-		return
-	fNow = 0.0
-	try:
-		fNow = App.g_kUtopiaModule.GetGameTime()
-	except:
-		pass
-	lIDs = []
-	if lSec:
-		lIDs = list(lSec)
-	g_lTorpList = [iHead, lIDs, fNow]
+	GetTorpDiag().NoteTorpList(pSystem, iHead, lSec)
 
 
 def KmPerUnit():
@@ -1621,177 +1681,6 @@ def KmPerUnit():
 	except:
 		pass
 	return 0.175
-
-
-def TorpRange(pTorp):
-	# Debug only: " dist <km>" from the torpedo to its target's centre, as the game shows km.
-	try:
-		pTarget = App.ShipClass_GetObjectByID(None, pTorp.GetTargetID())
-		if pTarget == None:
-			return " dist ?"
-		vDiff = pTarget.GetWorldLocation()
-		vDiff.Subtract(pTorp.GetWorldLocation())
-		return " dist %.1f km (%.1f units)" % (vDiff.Length() * KmPerUnit(), vDiff.Length())
-	except:
-		return " dist ?"
-
-
-def TorpMeasure(pTorp):
-	# Debug only: (target ID, distance km to the target's centre, target radius km), or None.
-	try:
-		iTarget = pTorp.GetTargetID()
-		pTarget = App.ShipClass_GetObjectByID(None, iTarget)
-		if pTarget == None:
-			return (iTarget, None, None)
-		vDiff = pTarget.GetWorldLocation()
-		vDiff.Subtract(pTorp.GetWorldLocation())
-		fK = KmPerUnit()
-		return (iTarget, vDiff.Length() * fK, pTarget.GetRadius() * fK)
-	except:
-		return None
-
-
-def TorpAim(pTorp):
-	# Debug only: " aim <deg> deg (<pct>% of the 30 degree cone)": the angle between the
-	# torpedo's heading at launch and the direction to its target's centre.
-	try:
-		pTarget = App.ShipClass_GetObjectByID(None, pTorp.GetTargetID())
-		if pTarget == None:
-			return ""
-		pSolution = GetSolution()
-		tFwd = pSolution.Triple(pTorp.GetWorldForwardTG())
-		tTarget = pSolution.Triple(pTarget.GetWorldLocation())
-		tFrom = pSolution.Triple(pTorp.GetWorldLocation())
-		tDir = (tTarget[0] - tFrom[0], tTarget[1] - tFrom[1], tTarget[2] - tFrom[2])
-		fLen = math.sqrt(pSolution.Dot3(tDir, tDir)) * math.sqrt(pSolution.Dot3(tFwd, tFwd))
-		if fLen <= 0.0:
-			return ""
-		fCos = pSolution.Dot3(tDir, tFwd) / fLen
-		if fCos > 1.0:
-			fCos = 1.0
-		if fCos < -1.0:
-			fCos = -1.0
-		fDeg = math.acos(fCos) * 180.0 / math.pi
-		return " aim %.1f deg (%d%% of cone)" % (fDeg, int(fDeg * 100.0 / 30.0 + 0.5))
-	except:
-		return " aim ?"
-
-
-def TorpMotion(pTorp):
-	# Debug only: " tgt <km/s> closing <km/s> lateral <km/s> own <km/s> proj <km/s> ft <s> drift <km>":
-	# the target's speed, how fast it closes on the shooter along the line of sight, its sideways
-	# speed against that line (both relative to our ship), our own speed, the projectile's speed,
-	# the estimated flight time and the sideways drift expected over it (lateral x flight time).
-	# "vel" = angle between the projectile's velocity and the direction to the target at launch.
-	try:
-		pTarget = App.ShipClass_GetObjectByID(None, pTorp.GetTargetID())
-		pOwn = App.ShipClass_GetObjectByID(None, g_iShipID)
-		if (pTarget == None) or (pOwn == None):
-			return ""
-		pSolution = GetSolution()
-		fK = KmPerUnit()
-		tT = pSolution.Triple(pTarget.GetVelocityTG())
-		tO = pSolution.Triple(pOwn.GetVelocityTG())
-		tRel = (tT[0] - tO[0], tT[1] - tO[1], tT[2] - tO[2])
-		tFrom = pSolution.Triple(pTorp.GetWorldLocation())
-		tTo = pSolution.Triple(pTarget.GetWorldLocation())
-		tDir = (tTo[0] - tFrom[0], tTo[1] - tFrom[1], tTo[2] - tFrom[2])
-		fDist = math.sqrt(pSolution.Dot3(tDir, tDir))
-		if fDist <= 0.0:
-			return ""
-		tU = (tDir[0] / fDist, tDir[1] / fDist, tDir[2] / fDist)
-		fAlong = pSolution.Dot3(tRel, tU)
-		fLat = pSolution.Dot3(tRel, tRel) - fAlong * fAlong
-		if fLat < 0.0:
-			fLat = 0.0
-		fLat = math.sqrt(fLat)
-		fProj = 0.0
-		try:
-			tP = pSolution.Triple(pTorp.GetVelocityTG())
-			fProj = math.sqrt(pSolution.Dot3(tP, tP))
-		except:
-			pass
-		sText = " tgt %.2f km/s closing %.2f km/s lateral %.2f km/s own %.2f km/s" % (math.sqrt(pSolution.Dot3(tT, tT)) * fK, -fAlong * fK, fLat * fK, math.sqrt(pSolution.Dot3(tO, tO)) * fK)
-		if fProj > 0.0:
-			fFlight = fDist / fProj
-			sText = sText + " proj %.1f km/s ft %.2f s drift %.2f km" % (fProj * fK, fFlight, fLat * fFlight * fK)
-			# Angle between the projectile's velocity (its real direction of flight) and the
-			# direction to the target, at the moment it appears.
-			fCosV = pSolution.Dot3(tP, tU) / fProj
-			if fCosV > 1.0:
-				fCosV = 1.0
-			if fCosV < -1.0:
-				fCosV = -1.0
-			sText = sText + " vel %.1f deg" % (math.acos(fCosV) * 180.0 / math.pi)
-		else:
-			sText = sText + " proj ?"
-		return sText
-	except:
-		return " motion ?"
-
-
-def Dist3(tA, tB):
-	# Distance between two (x, y, z) triples, game units.
-	fX = tA[0] - tB[0]
-	fY = tA[1] - tB[1]
-	fZ = tA[2] - tB[2]
-	return math.sqrt(fX * fX + fY * fY + fZ * fZ)
-
-
-def TorpPrediction(pTorp):
-	# Debug only: what the aim assumed at launch, to compare with what happened:
-	# (predicted point (x, y, z) in game units, predicted flight time in s, the target's velocity
-	# (x, y, z)), the point being where the target is predicted to be when a projectile of the
-	# torpedo's real speed arrives. None when anything is unavailable.
-	try:
-		pTarget = App.ShipClass_GetObjectByID(None, pTorp.GetTargetID())
-		if pTarget == None:
-			return None
-		pSolution = GetSolution()
-		tP = pSolution.Triple(pTorp.GetVelocityTG())
-		fProj = math.sqrt(pSolution.Dot3(tP, tP))
-		if fProj <= 0.0:
-			return None
-		vFrom = pTorp.GetWorldLocation()
-		tPoint = pSolution.Triple(pSolution.LeadPoint(pTarget, None, vFrom, fProj))
-		fFlight = Dist3(tPoint, pSolution.Triple(vFrom)) / fProj
-		return (tPoint, fFlight, pSolution.Triple(pTarget.GetVelocityTG()))
-	except:
-		return None
-
-
-def TorpIsGuided(pTorp):
-	# Debug only: 0 for projectiles without guidance (pulse, disruptor and similar bolts: guidance
-	# lifetime 0), which would only flood the log. 1 when guided, or when the lookup fails.
-	try:
-		sMod = str(pTorp.GetModuleName())
-		if GetSolution().GetScriptInfo(sMod)[0] <= 0.0:
-			return 0
-	except:
-		pass
-	return 1
-
-
-def TorpPointAngle(pTorp, tPoint):
-	# Debug only: " toward-point X.X deg", the angle between the torpedo's real velocity and the
-	# direction from the torpedo to the predicted point; " toward-point ?" when unavailable.
-	try:
-		pSolution = GetSolution()
-		tV = pSolution.Triple(pTorp.GetVelocityTG())
-		tFrom = pSolution.Triple(pTorp.GetWorldLocation())
-		tD = (tPoint[0] - tFrom[0], tPoint[1] - tFrom[1], tPoint[2] - tFrom[2])
-		fLenV = math.sqrt(pSolution.Dot3(tV, tV))
-		fLenD = math.sqrt(pSolution.Dot3(tD, tD))
-		if (fLenV <= 0.000001) or (fLenD <= 0.000001):
-			return " toward-point ?"
-		fCos = pSolution.Dot3(tV, tD) / (fLenV * fLenD)
-		if fCos > 1.0:
-			fCos = 1.0
-		if fCos < -1.0:
-			fCos = -1.0
-		return " toward-point %.1f deg" % (math.acos(fCos) * 180.0 / math.pi)
-	except:
-		return " toward-point ?"
 
 
 def AngleDeg3(tA, tB):
@@ -1806,185 +1695,6 @@ def AngleDeg3(tA, tB):
 	if fCos < -1.0:
 		fCos = -1.0
 	return math.acos(fCos) * 180.0 / math.pi
-
-
-def TorpShipAngles(pTorp, tPoint):
-	# Debug only: " rel-point Y.Y deg own-shift Z.Z deg" to test whether our ship's velocity bends
-	# the torpedo's flight. rel-point: angle between (torpedo velocity - ship velocity) and the
-	# direction torpedo -> predicted point. own-shift: angle between the torpedo velocity and
-	# (torpedo velocity - ship velocity). Each is "?" when unavailable.
-	sRel = "?"
-	sShift = "?"
-	try:
-		pSolution = GetSolution()
-		pOwn = App.ShipClass_GetObjectByID(None, g_iShipID)
-		if pOwn != None:
-			tV = pSolution.Triple(pTorp.GetVelocityTG())
-			tS = pSolution.Triple(pOwn.GetVelocityTG())
-			tR = (tV[0] - tS[0], tV[1] - tS[1], tV[2] - tS[2])
-			fShift = AngleDeg3(tV, tR)
-			if fShift != None:
-				sShift = "%.1f deg" % fShift
-			if tPoint != None:
-				tFrom = pSolution.Triple(pTorp.GetWorldLocation())
-				tD = (tPoint[0] - tFrom[0], tPoint[1] - tFrom[1], tPoint[2] - tFrom[2])
-				fRel = AngleDeg3(tR, tD)
-				if fRel != None:
-					sRel = "%.1f deg" % fRel
-	except:
-		pass
-	return " rel-point " + sRel + " own-shift " + sShift
-
-
-def TorpSample(lEntry, pTorp, fNow):
-	# Debug only: keeps, in lEntry[14], the sample taken closest in time to the predicted arrival:
-	# (seconds from the predicted arrival, km the target is from the predicted point, km the
-	# torpedo is from it or None, km/s the target's velocity changed, degrees its velocity turned).
-	try:
-		if (len(lEntry) < 15) or (lEntry[11] == None):
-			return
-		fDt = abs((fNow - lEntry[2]) - lEntry[12])
-		if (lEntry[14] != None) and (fDt >= lEntry[14][0]):
-			return
-		pTarget = App.ShipClass_GetObjectByID(None, lEntry[1])
-		if pTarget == None:
-			return
-		pSolution = GetSolution()
-		fK = KmPerUnit()
-		fErr = Dist3(pSolution.Triple(pTarget.GetWorldLocation()), lEntry[11]) * fK
-		tNow = pSolution.Triple(pTarget.GetVelocityTG())
-		fDv = Dist3(tNow, lEntry[13]) * fK
-		fTurn = 0.0
-		fLenA = math.sqrt(pSolution.Dot3(tNow, tNow))
-		fLenB = math.sqrt(pSolution.Dot3(lEntry[13], lEntry[13]))
-		if (fLenA > 0.000001) and (fLenB > 0.000001):
-			fCos = pSolution.Dot3(tNow, lEntry[13]) / (fLenA * fLenB)
-			if fCos > 1.0:
-				fCos = 1.0
-			if fCos < -1.0:
-				fCos = -1.0
-			fTurn = math.acos(fCos) * 180.0 / math.pi
-		fOff = None
-		if pTorp != None:
-			fOff = Dist3(pSolution.Triple(pTorp.GetWorldLocation()), lEntry[11]) * fK
-		lEntry[14] = (fDt, fErr, fOff, fDv, fTurn)
-	except:
-		pass
-
-
-def TargetGone(iTarget):
-	# Debug only: 1 when the ship with this ID no longer exists or is dead or dying (a cloaked
-	# ship still counts as there), so a torpedo that flew on after its target died is not a miss.
-	try:
-		pTarget = App.ShipClass_GetObjectByID(None, iTarget)
-		if pTarget == None:
-			return 1
-		if pTarget.IsDead() or pTarget.IsDying():
-			return 1
-	except:
-		pass
-	return 0
-
-
-def TorpFollowUp():
-	# Debug only: every cycle, follows each launched torpedo (lookup by ID) and keeps its
-	# closest approach and last target. When it disappears, logs how close it got: near the
-	# target's radius = a hit, far = a miss; "grew" counts the samples where it moved away.
-	global g_lTorpWatch, g_bTorpLookup
-	if (not g_lTorpWatch) or (g_pCore == None):
-		return
-	fNow = 0.0
-	try:
-		fNow = App.g_kUtopiaModule.GetGameTime()
-	except:
-		return
-	lKeep = []
-	for lEntry in g_lTorpWatch:
-		# lEntry: ID, target at launch, launch time, min dist, last dist, last time, grew, last target, radius
-		pTorp = None
-		bFailed = 0
-		try:
-			pTorp = App.Torpedo_GetObjectByID(None, lEntry[0])
-		except:
-			bFailed = 1
-			if not g_bTorpLookup:
-				g_bTorpLookup = 1
-				g_pCore.Log(NAME, "Torpedo_GetObjectByID failed: " + str(sys.exc_info()[1]))
-		if (lEntry[10] == None) and lEntry[1]:
-			if TargetGone(lEntry[1]):
-				lEntry[10] = fNow
-		if pTorp != None:
-			TorpSample(lEntry, pTorp, fNow)
-			tM = TorpMeasure(pTorp)
-			if tM != None:
-				lEntry[7] = tM[0]
-				if tM[1] != None:
-					if (lEntry[4] != None) and (tM[1] > lEntry[4] + 0.05):
-						lEntry[6] = lEntry[6] + 1
-					lEntry[4] = tM[1]
-					lEntry[5] = fNow
-					if (lEntry[3] == None) or (tM[1] < lEntry[3]):
-						lEntry[3] = tM[1]
-						if len(lEntry) > 15:
-							lEntry[15] = fNow - lEntry[2]
-					lEntry[8] = tM[2]
-			if fNow - lEntry[2] > 10.0:
-				g_pCore.Log(NAME, "Torpedo " + str(lEntry[0]) + " still flying after 10 s: " + TorpSummary(lEntry, fNow))
-			else:
-				lKeep.append(lEntry)
-		elif not bFailed:
-			g_pCore.Log(NAME, "Torpedo " + str(lEntry[0]) + " ended: " + TorpSummary(lEntry, fNow))
-	g_lTorpWatch = lKeep
-
-
-def TorpSummary(lEntry, fNow):
-	sText = "mod " + lEntry[9] + " flew " + ("%.1f" % (fNow - lEntry[2])) + " s, target " + str(lEntry[7]) + " (launched at " + str(lEntry[1]) + ")"
-	if lEntry[3] != None:
-		sText = sText + ", closest " + ("%.2f" % lEntry[3]) + " km"
-		if lEntry[8] != None:
-			sText = sText + " (radius " + ("%.2f" % lEntry[8]) + " km)"
-		if (len(lEntry) > 15) and (lEntry[15] != None):
-			sText = sText + " at " + ("%.1f" % lEntry[15]) + " s"
-		if (len(lEntry) > 14) and (lEntry[11] != None):
-			sText = sText + " (predicted arrival " + ("%.1f" % lEntry[12]) + " s)"
-		sText = sText + ", last " + ("%.2f" % lEntry[4]) + " km " + ("%.1f" % (fNow - lEntry[5])) + " s before the end, grew " + str(lEntry[6]) + "x"
-	if lEntry[10] != None:
-		sText = sText + ", target gone " + ("%.1f" % (lEntry[10] - lEntry[2])) + " s after launch (dead or removed)"
-	else:
-		sText = sText + ", target alive"
-	if (len(lEntry) > 14) and (lEntry[11] != None):
-		if lEntry[14] == None:
-			sText = sText + ", no sample at the predicted arrival (" + ("%.1f" % lEntry[12]) + " s)"
-		else:
-			tS = lEntry[14]
-			sText = sText + ", predicted arrival " + ("%.1f" % lEntry[12]) + " s (sampled " + ("%.2f" % tS[0]) + " s off): target " + ("%.2f" % tS[1]) + " km from the predicted point"
-			if tS[2] != None:
-				sText = sText + ", torpedo " + ("%.2f" % tS[2]) + " km from it"
-			sText = sText + ", target velocity changed " + ("%.2f" % tS[3]) + " km/s, turned " + ("%.1f" % tS[4]) + " deg"
-	return sText
-
-
-def NearestWeapon(pSystem, bTube, tFrom):
-	# Debug only: the child of pSystem (torpedo tube if bTube, else pulse weapon) whose world
-	# location is nearest to tFrom (x, y, z); None when there is none.
-	pBest = None
-	fBest = 0.0
-	pSolution = GetSolution()
-	for iChild in range(pSystem.GetNumChildSubsystems()):
-		pChild = pSystem.GetChildSubsystem(iChild)
-		if bTube:
-			pWeapon = App.TorpedoTube_Cast(pChild)
-		else:
-			pWeapon = App.PulseWeapon_Cast(pChild)
-		if pWeapon != None:
-			try:
-				fDist = Dist3(pSolution.Triple(pWeapon.GetWorldLocation()), tFrom)
-				if (pBest == None) or (fDist < fBest):
-					pBest = pWeapon
-					fBest = fDist
-			except:
-				pass
-	return pBest
 
 
 def BoxAngles(tPos, tFwd, tRight, tUp, tPoint):
@@ -2002,283 +1712,15 @@ def BoxAngles(tPos, tFwd, tRight, tUp, tPoint):
 	return (fH, fV, fAng)
 
 
-def TorpTubeAngles(pTorp, tPoint):
-	# Debug only: " tube-h X.X tube-v Y.Y tube-ang Z.Z" for the tube that fired (our torpedo tube
-	# nearest to the torpedo's world location) and the predicted point: the signed box angles of
-	# the tube's arc test and the 3D angle from the tube's forward. "?" for each when unavailable.
-	sOut = " tube-h ? tube-v ? tube-ang ?"
-	try:
-		if tPoint == None:
-			return sOut
-		pSolution = GetSolution()
-		pOwn = App.ShipClass_GetObjectByID(None, g_iShipID)
-		if pOwn == None:
-			return sOut
-		pTube = NearestWeapon(pOwn.GetTorpedoSystem(), 1, pSolution.Triple(pTorp.GetWorldLocation()))
-		if pTube == None:
-			return sOut
-		tFrame = pSolution.TubeFrame(pOwn, pTube)
-		if tFrame == None:
-			return sOut
-		tAng = BoxAngles(tFrame[0], tFrame[1], tFrame[2], tFrame[3], tPoint)
-		if tAng == None:
-			return sOut
-		return " tube-h %.1f tube-v %.1f tube-ang %.1f" % (tAng[0], tAng[1], tAng[2])
-	except:
-		return sOut
-
-
-def EnginePoint(pOwn, pTarget, pTorp):
-	# Debug only: the point the engine's own tube test (TorpedoTube::CanHit) aims at, worked out
-	# in script: P' = Ptarget + V*t + 0.5*A*t^2 with t = |Ptarget - Pship| / (|Vship - Vtarget| +
-	# launch speed), launch speed = the torpedo's real speed, aim offset dropped. The acceleration
-	# term uses GetAccelerationTG (listed in App-index.txt, unconfirmed in game); when it raises
-	# the term is dropped. Returns an (x, y, z) triple or None.
-	pSolution = GetSolution()
-	tP = pSolution.Triple(pTarget.GetWorldLocation())
-	tV = pSolution.Triple(pTarget.GetVelocityTG())
-	tS = pSolution.Triple(pOwn.GetWorldLocation())
-	tVs = pSolution.Triple(pOwn.GetVelocityTG())
-	tTorp = pSolution.Triple(pTorp.GetVelocityTG())
-	tA = (0.0, 0.0, 0.0)
-	try:
-		tA = pSolution.Triple(pTarget.GetAccelerationTG())
-	except:
-		tA = (0.0, 0.0, 0.0)
-	fLaunch = math.sqrt(pSolution.Dot3(tTorp, tTorp))
-	tRel = (tVs[0] - tV[0], tVs[1] - tV[1], tVs[2] - tV[2])
-	fDen = math.sqrt(pSolution.Dot3(tRel, tRel)) + fLaunch
-	if fDen <= 0.000001:
-		return None
-	fT = Dist3(tP, tS) / fDen
-	return (tP[0] + tV[0] * fT + 0.5 * tA[0] * fT * fT,
-		tP[1] + tV[1] * fT + 0.5 * tA[1] * fT * fT,
-		tP[2] + tV[2] * fT + 0.5 * tA[2] * fT * fT)
-
-
-def TubeEntry(pOwn, pTube, iIndex, bFired, tPoint, tEng, pHit):
-	# Debug only: "<index>[*]:<ang>/<ch>/<eng>" for one tube: ang = 3D angle from the tube's
-	# forward to our lead point, ch = pTube.CanHit(target location) as 1/0, eng = the same angle
-	# to the engine-style point; "?" for each that is unavailable. Returns (entry text, eng text).
-	sAng = "?"
-	sEng = "?"
-	sHit = "?"
-	try:
-		tFrame = GetSolution().TubeFrame(pOwn, pTube)
-		if tFrame != None:
-			if tPoint != None:
-				tD = (tPoint[0] - tFrame[0][0], tPoint[1] - tFrame[0][1], tPoint[2] - tFrame[0][2])
-				sAng = DegText(AngleDeg3(tFrame[1], tD))
-			if tEng != None:
-				tD = (tEng[0] - tFrame[0][0], tEng[1] - tFrame[0][1], tEng[2] - tFrame[0][2])
-				sEng = DegText(AngleDeg3(tFrame[1], tD))
-	except:
-		pass
-	try:
-		if pHit != None:
-			iHit = pTube.CanHit(pHit)
-			if iHit != None:
-				if iHit:
-					sHit = "1"
-				else:
-					sHit = "0"
-	except:
-		sHit = "?"
-	sMark = ""
-	if bFired:
-		sMark = "*"
-	return (str(iIndex) + sMark + ":" + sAng + "/" + sHit + "/" + sEng, sEng)
-
-
-def TorpTubeDiag(pTorp, tPoint):
-	# Debug only: " eng-ang X.X tubes [ ... ]": the engine-style angle for the tube that fired and
-	# one TubeEntry per ready tube of our torpedo system plus the fired one (the tube nearest to
-	# the torpedo, marked *), at most 16 entries. Everything "?" on failure; never raises.
-	sEng = "?"
-	sList = ""
-	try:
-		pSolution = GetSolution()
-		pOwn = App.ShipClass_GetObjectByID(None, g_iShipID)
-		pTarget = App.ShipClass_GetObjectByID(None, pTorp.GetTargetID())
-		if pOwn != None:
-			tEng = None
-			pHit = None
-			if pTarget != None:
-				try:
-					tEng = EnginePoint(pOwn, pTarget, pTorp)
-				except:
-					tEng = None
-				try:
-					pHit = pTarget.GetWorldLocation()
-				except:
-					pHit = None
-			pSystem = pOwn.GetTorpedoSystem()
-			tTorp = pSolution.Triple(pTorp.GetWorldLocation())
-			lTubes = []
-			iFired = -1
-			fBest = 0.0
-			for iChild in range(pSystem.GetNumChildSubsystems()):
-				pTube = App.TorpedoTube_Cast(pSystem.GetChildSubsystem(iChild))
-				if pTube != None:
-					lTubes.append((iChild, pTube))
-					try:
-						fDist = Dist3(pSolution.Triple(pTube.GetWorldLocation()), tTorp)
-						if (iFired < 0) or (fDist < fBest):
-							iFired = iChild
-							fBest = fDist
-					except:
-						pass
-			lPick = []
-			for tItem in lTubes:
-				if (tItem[0] == iFired) or WeaponReady(tItem[1], "torpedo"):
-					lPick.append(tItem)
-			while len(lPick) > 16:
-				# over the cap: drop the last tube that is not the fired one
-				iDrop = len(lPick) - 1
-				if lPick[iDrop][0] == iFired:
-					iDrop = iDrop - 1
-				del lPick[iDrop]
-			for tItem in lPick:
-				tEntry = TubeEntry(pOwn, tItem[1], tItem[0], tItem[0] == iFired, tPoint, tEng, pHit)
-				if tItem[0] == iFired:
-					sEng = tEntry[1]
-				if sList != "":
-					sList = sList + " "
-				sList = sList + tEntry[0]
-	except:
-		pass
-	return " eng-ang " + sEng + " tubes [" + sList + "]"
-
-
-def DegText(fAngle):
-	# Debug only: "12.3" or "?" for None.
-	if fAngle == None:
-		return "?"
-	return "%.1f" % fAngle
-
-
-def PulseDiag(pTorp):
-	# Debug only: one rate-limited line for an unguided bolt of ours (pulse, disruptor): does it
-	# fly along the weapon or toward the target? At most one per module name per second of game
-	# time and 80 per session. Each piece is "?" when unavailable.
-	global g_dPulseLast, g_iPulseLines
-	if g_iPulseLines >= 80:
-		return
-	sMod = "?"
-	try:
-		sMod = str(pTorp.GetModuleName())
-		iDot = -1
-		for i in range(len(sMod)):
-			if sMod[i] == ".":
-				iDot = i
-		sMod = sMod[iDot + 1:]
-	except:
-		pass
-	fNow = 0.0
-	try:
-		fNow = App.g_kUtopiaModule.GetGameTime()
-	except:
-		pass
-	if g_dPulseLast.has_key(sMod) and (fNow - g_dPulseLast[sMod] < 1.0):
-		return
-	g_dPulseLast[sMod] = fNow
-	g_iPulseLines = g_iPulseLines + 1
-	sDist = "?"
-	sA = "?"
-	sB = "?"
-	sC = "?"
-	sE = "?"
-	sH = "?"
-	sV = "?"
-	tV = None
-	tFrom = None
-	tT = None
-	tLead = None
-	try:
-		pSolution = GetSolution()
-		tV = pSolution.Triple(pTorp.GetVelocityTG())
-		tFrom = pSolution.Triple(pTorp.GetWorldLocation())
-		pTarget = App.ShipClass_GetObjectByID(None, pTorp.GetTargetID())
-		if pTarget != None:
-			tT = pSolution.Triple(pTarget.GetWorldLocation())
-			sDist = "%.2f" % (Dist3(tT, tFrom) * KmPerUnit())
-			sA = DegText(AngleDeg3(tV, (tT[0] - tFrom[0], tT[1] - tFrom[1], tT[2] - tFrom[2])))
-		tPred = TorpPrediction(pTorp)
-		if tPred != None:
-			tLead = tPred[0]
-			sB = DegText(AngleDeg3(tV, (tLead[0] - tFrom[0], tLead[1] - tFrom[1], tLead[2] - tFrom[2])))
-	except:
-		pass
-	try:
-		pSolution = GetSolution()
-		pOwn = App.ShipClass_GetObjectByID(None, g_iShipID)
-		pWeapon = NearestWeapon(pOwn.GetPulseWeaponSystem(), 0, tFrom)
-		if pWeapon != None:
-			tAxes = pSolution.ArcAxes(pOwn, pWeapon)
-			tFwd = pSolution.Triple(tAxes[0])
-			tRight = pSolution.Triple(tAxes[1])
-			tUp = pSolution.Triple(tAxes[2])
-			tPos = pSolution.Triple(pWeapon.GetWorldLocation())
-			if tT != None:
-				sC = DegText(AngleDeg3(tFwd, (tT[0] - tPos[0], tT[1] - tPos[1], tT[2] - tPos[2])))
-			sE = DegText(AngleDeg3(tV, tFwd))
-			if tLead != None:
-				tBox = BoxAngles(tPos, tFwd, tRight, tUp, tLead)
-				if tBox != None:
-					sH = DegText(tBox[0])
-					sV = DegText(tBox[1])
-	except:
-		pass
-	g_pCore.Log(NAME, "Pulse launched: mod " + sMod + " dist " + sDist + " km vel-target " + sA + " deg vel-point " + sB + " deg weapon-target " + sC + " deg vel-weapon " + sE + " deg w-h " + sH + " deg w-v " + sV + " deg")
-
-
 def OnTorpedoLaunched(pObject, pEvent):
-	# Debug only: which target each of our torpedoes was born with, against the list
-	# Auto Fire had armed (a torpedo with target 0 or another ID flies without tracking).
-	try:
-		if g_bDebug and (g_pCore != None) and (g_iShipID != None):
-			pTorp = App.Torpedo_Cast(pEvent.GetDestination())
-			if (pTorp != None) and (pTorp.GetParentID() == g_iShipID) and (not TorpIsGuided(pTorp)):
-				PulseDiag(pTorp)
-			if (pTorp != None) and (pTorp.GetParentID() == g_iShipID) and TorpIsGuided(pTorp):
-				fNow = 0.0
-				try:
-					fNow = App.g_kUtopiaModule.GetGameTime()
-				except:
-					pass
-				tPred = TorpPrediction(pTorp)
-				sText = "Torpedo launched: target " + str(pTorp.GetTargetID())
-				if g_lTorpList == None:
-					sText = sText + ", no list armed yet"
-				else:
-					sText = sText + ", list head " + str(g_lTorpList[0]) + " sec " + str(g_lTorpList[1])
-					sText = sText + " (set " + ("%.2f" % (fNow - g_lTorpList[2])) + " s ago)"
-				sText = sText + TorpRange(pTorp)
-				sText = sText + TorpAim(pTorp)
-				sText = sText + TorpMotion(pTorp)
-				try:
-					sText = sText + " mod " + str(pTorp.GetModuleName())
-				except:
-					sText = sText + " mod ?"
-				if tPred == None:
-					sText = sText + " toward-point ?" + TorpShipAngles(pTorp, None) + TorpTubeAngles(pTorp, None) + TorpTubeDiag(pTorp, None)
-				else:
-					sText = sText + TorpPointAngle(pTorp, tPred[0])
-					sText = sText + TorpShipAngles(pTorp, tPred[0]) + TorpTubeAngles(pTorp, tPred[0]) + TorpTubeDiag(pTorp, tPred[0])
-				sText = sText + TorpDecisionText(fNow)
-				g_pCore.Log(NAME, sText)
-				if len(g_lTorpWatch) < 60:
-					sMod = "?"
-					try:
-						sMod = str(pTorp.GetModuleName())
-					except:
-						pass
-					if tPred == None:
-						tPred = (None, 0.0, None)
-					g_lTorpWatch.append([pTorp.GetObjID(), pTorp.GetTargetID(), fNow, None, None, fNow, 0, pTorp.GetTargetID(), None, sMod, None, tPred[0], tPred[1], tPred[2], None, None])
-	except:
-		if g_pCore != None:
-			g_pCore.Log(NAME, "Torpedo event error: " + str(sys.exc_info()[1]))
+	# Debug only: the launch log of our torpedoes and bolts (TorpDiag.py). Registered by
+	# name in Start(); always passes the event on to the next handler.
+	if g_bDebug:
+		try:
+			GetTorpDiag().OnTorpedoLaunched(pObject, pEvent)
+		except:
+			if g_pCore != None:
+				g_pCore.Log(NAME, "Torpedo event error: " + str(sys.exc_info()[1]))
 	try:
 		pObject.CallNextHandler(pEvent)
 	except:
@@ -2382,9 +1824,9 @@ def FireCycle():
 		# The player switched ships, died, or the ship lost the technology.
 		SetEnabled(0)
 		return
-	if g_bDebug and g_lTorpWatch:
+	if g_bDebug:
 		try:
-			TorpFollowUp()
+			GetTorpDiag().TorpFollowUp()
 		except:
 			g_pCore.Log(NAME, "Torpedo follow-up error: " + str(sys.exc_info()[1]))
 	pShip = GetPlayer()
@@ -2545,12 +1987,17 @@ def Stop():
 	# Called when the battle ends, while the game is destroying the ships:
 	# nothing is asked of them (their weapons stop with them), Auto Fire
 	# only forgets what it was firing.
-	global g_iOn, g_iShipID, g_pMission, g_iFiringShipID, g_dSecHead, g_dPlanNote, g_lTorpList, g_lTorpWatch, g_dPulseLast, g_iPulseLines, g_tTorpDecision
-	g_lTorpList = None
-	g_lTorpWatch = []
+	global g_iOn, g_iShipID, g_pMission, g_iFiringShipID, g_dSecHead, g_dPlanNote, g_tTorpDecision
 	g_tTorpDecision = None
-	g_dPulseLast = {}
-	g_iPulseLines = 0
+	try:
+		GetWarpHold().Reset()
+	except:
+		pass
+	try:
+		GetTorpDiag().Reset()
+	except:
+		if g_pCore != None:
+			g_pCore.Log(NAME, "Torpedo diagnostics reset error: " + str(sys.exc_info()[1]))
 	for tEntry in GetFireEvents():
 		g_dFiring[tEntry[1]] = None
 	g_dSecHead = {}

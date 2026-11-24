@@ -7,12 +7,13 @@ import mock_app
 import test_autofire_base as base
 
 
-def setup(score=90.0, chains=3, player_mode=0, km=10.0, min_km=3.0):
-	App, AF, core, ship = base.setup(SpreadMinSolution=75, SpreadMinDistance=min_km)
+def setup(score=90.0, chains=3, player_mode=0, km=10.0, ft_min=0.5, ft_max=0.0, speed=100.0):
+	# Torpedo speed 100 units/s: the target at km is km / 0.175 / 100 s away (10 km = 0.571 s).
+	App, AF, core, ship = base.setup(SpreadFlightTimeMin=ft_min, SpreadFlightTimeMax=ft_max)
 	S = types.ModuleType("Custom.Spaceframe.Modules.AutoFire.Solution")
 	S.score = score
 	base.fake_arc_score(AF, lambda pTarget: S.score)
-	S.GetProjectileInfo = lambda w, s: (100.0, 0.1, 10.0, 0.0)
+	S.GetProjectileInfo = lambda w, s: (speed, 0.1, 10.0, 0.0)
 	sys.modules["Custom.Spaceframe.Modules.AutoFire.Solution"] = S
 	sys.modules["Custom.Spaceframe.Modules.AutoFire"].Solution = S
 	target = mock_app.Ship("Bug", 7)
@@ -34,10 +35,11 @@ def test_spread_high_score():
 	assert torps.chain == 2 and torps.starts() == 1
 
 
-def test_single_mid_score():
+def test_spread_low_score_still_spreads():
+	# The score no longer matters: a firing tube inside the window spreads.
 	App, AF, core, ship, torps, S = setup(60.0, 3, player_mode=2)
 	AF.FireCycle()
-	assert torps.chain == 0 and torps.starts() == 1
+	assert torps.chain == 2 and torps.starts() == 1
 
 
 def test_no_change_when_holding_fire():
@@ -98,18 +100,46 @@ def test_stop_does_not_touch_spread():
 	assert torps.chain_sets == n
 
 
-def test_spread_too_close():
-	# Spread torpedoes fly apart before they turn to the target: too close
-	# and they miss, so Single there.
-	App, AF, core, ship, torps, S = setup(95.0, 3, km=2.0, min_km=3.0)
+def test_spread_below_interval():
+	# Spread torpedoes fly apart before they turn to the target: flight time
+	# under SpreadFlightTimeMin (2 km = 0.114 s < 0.5 s) means Single.
+	App, AF, core, ship, torps, S = setup(95.0, 3, km=2.0, ft_min=0.5, ft_max=1.0)
 	AF.FireCycle()
 	assert torps.chain == 0 and torps.starts() == 1
 
 
-def test_spread_far_enough():
-	App, AF, core, ship, torps, S = setup(95.0, 3, km=4.0, min_km=3.0)
+def test_spread_inside_interval():
+	App, AF, core, ship, torps, S = setup(95.0, 3, km=10.0, ft_min=0.5, ft_max=1.0)	# 0.571 s
 	AF.FireCycle()
 	assert torps.chain == 2
+
+
+def test_spread_above_interval():
+	# 30 km = 1.714 s > SpreadFlightTimeMax 1.0 s: Single.
+	App, AF, core, ship, torps, S = setup(95.0, 3, km=30.0, ft_min=0.5, ft_max=1.0)
+	AF.FireCycle()
+	assert torps.chain == 0 and torps.starts() == 1
+
+
+def test_spread_max_zero_has_no_upper_bound():
+	App, AF, core, ship, torps, S = setup(95.0, 3, km=100.0, ft_min=0.5, ft_max=0.0)	# 5.7 s
+	AF.FireCycle()
+	assert torps.chain == 2
+
+
+def test_spread_interval_edges_inclusive():
+	App, AF, core, ship, torps, S = setup(95.0, 3)
+	AF.g_fSpreadFtMin = 1.0
+	AF.g_fSpreadFtMax = 2.0
+	assert AF.SpreadAllowed(100.0, 100.0) == 1	# exactly min
+	assert AF.SpreadAllowed(200.0, 100.0) == 1	# exactly max
+	assert AF.SpreadAllowed(99.0, 100.0) == 0 and AF.SpreadAllowed(201.0, 100.0) == 0
+
+
+def test_spread_unknown_speed_is_single():
+	App, AF, core, ship, torps, S = setup(95.0, 3, km=10.0, speed=0.0)
+	AF.FireCycle()
+	assert torps.chain == 0 and torps.starts() == 1
 
 
 def run():

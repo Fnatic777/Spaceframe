@@ -21,9 +21,13 @@ without further thought.
   `python tools/dis15.py --calls-only <file.pyc|dir> | grep Name` (real call patterns,
   `path:func:line: call`) or `--func Name` for a full listing. Crash dumps:
   `stbc.RPT` in the game root (time + exception code + address, no Python traceback).
-- What does NOT exist: a build, a file log, a Python 1.5 interpreter off-game, any way to run the
-  game yourself. The only in-game output is `App.CPyDebug().Print` with `Debug = 1`, and the
-  user's own observation. The user dislikes the console: prefer visible in-game checks.
+- Game log: with `Debug` >= 1 and the `fileio` exe patch, the core `Log()` writes
+  `Spaceframe_debug.log`; read it with `python tools/gamelog.py` (summary of the last session,
+  then `show --module M --grep RE --from T --to T`), never the raw file.
+  `python tools/vanilla_calls.py REGEX` greps every call in the game's .pyc in under a second.
+- What does NOT exist: a build, a Python 1.5 interpreter off-game, any way to run the game
+  yourself. `App.CPyDebug().Print` prints nothing. Besides the log, the user's own observation
+  is the only in-game evidence; the user dislikes the console: prefer visible in-game checks.
 - Respect rulings in the ledger and comments marked `Agreed with user` / `FROZEN`. Behavior is the
   user's decision: if the right fix changes agreed behavior, return NEEDS USER instead.
 
@@ -42,7 +46,8 @@ stbc.RPT tail, user's in-game observation, files:lines, recent commits).
    - **Otherwise**: write a closed spec file (see DESIGN output) for `bc-implementer`.
 4. Without a confident cause, stop and return UNRESOLVED with the single most useful next
    experiment, chosen from:
-   - a probe: exact `Log()` lines behind `Debug = 1` (which values, where, how often);
+   - a probe: exact `Log()` lines behind `Debug` >= 1 (which values, where, how often - mind the
+     20000-line cap per session) and the `gamelog.py show` filter that will read them;
    - a bisection: which modules to switch off in `Config.Modules` and in what order;
    - an in-game test: exact steps (ship, mission, action) and what each outcome would mean.
    Never "try again" without a new experiment. Do not loop.

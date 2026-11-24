@@ -77,6 +77,7 @@ scripts\Custom\Spaceframe\Modules\AutoFire\
     __init__.py
     AutoFire.py    ligar/desligar, ciclo de disparo, integracao com o nucleo
     Solution.py    calculo da nota de solucao de tiro (sem interface)
+    TorpDiag.py    diagnosticos de lancamento de torpedo e pulso (so Debug)
     Config.py      configuracoes
 ```
 

@@ -23,18 +23,27 @@ Files: CRLF, ASCII only, tab indentation.
 `python tools/lint15.py` enforces this - its verdict beats memory.
 
 ## Commands (repo root)
-- `python tools/check.py` - lint15 + all mock tests. Must be green before any install.
+- `python tools/check.py [--only PATTERN]` - lint15 + all mock tests in parallel (~4 s), always
+  ends with two summary lines (no `| tail`). `--only` is for the inner loop; the full run must be
+  green before any install.
 - `python tools/deploy.py status|install|pull|backup [Mod]` - install refuses to overwrite files
   the user edited in the game (often `Ships.py`, `Config.py`): `pull`, merge, then install.
   `edited` is real (game copy matches neither the last install nor HEAD): never `--force`
   without diffing the game copy first and telling the user.
+- `python tools/deploy.py debug [0|1|2]` - show/set `Debug` in the GAME copy of Config.py only.
+  The Debug line is ignored by status/edited, install keeps the game's level, the repo stays 0.
+- `python tools/gamelog.py [summary | show --module M --grep RE --from T --to T | sessions | rotate]`
+  - the game log, last session by default, repeats collapsed. Never cat/grep the raw
+  `Spaceframe_debug.log` (MBs): start with `summary`, then narrow with `show`.
+- `python tools/vanilla_calls.py REGEX [--files] [--max N]` - every call in the game's .pyc
+  (cached dis15 output, ~0.6 s). Use it before running dis15 on a directory.
 - `python tools/build_api_index.py` - regenerate `docs/api/App-index.txt`.
 - `python tools/dbwin_capture.py [--match TEXT] [--out PATH]` - captures only the engine's own
   TGTrace/OutputDebugString output into logs/stbc_debug.log. It does NOT capture the Python logs
   (`App.CPyDebug().Print` is a no-op in stbc.exe).
-- Game log: with `Debug = 1` (Spaceframe/Config.py) and the `fileio` exe patch applied, the game
-  writes `Spaceframe_debug.log` in the game folder. Ask the user to run the test, then read that
-  file with Read/Grep (never ask the user to copy banners).
+- Game log: with `Debug` >= 1 (`deploy.py debug 1`) and the `fileio` exe patch applied, the game
+  writes `Spaceframe_debug.log` in the game folder. Ask the user to run the test, then read it
+  with `gamelog.py` (never ask the user to copy banners).
 - `python tools/dis15.py <file.pyc|dir> [--func Name] [--calls-only]` - disassemble game `.pyc`
   (Python 1.5); `--calls-only` prints `path:func:line: call` to grep real vanilla call patterns.
 - `python tools/exe_probe.py <wrap|dis|xref|vt|vtof|str|names|field> ...` - read-only static probe of
@@ -50,6 +59,11 @@ Files: CRLF, ASCII only, tab indentation.
   explicit OK and the game closed.
 
 ## Workflow (main agent = coordinator, keep your context small)
+Context budget: the coordinator reads at most ~40 lines of module code per question (Grep with
+`-n`/context, `Read` with offset/limit); anything wider goes to `bc-scout`, and code reading for a
+change belongs to `bc-implementer`. One session per feature: when a feature closes (or after ~2
+compactions), write the state in the mod's `docs/*-progress.md` and suggest a new session that
+starts from the ledger.
 1. Lookups: one-liners (a name in `App-index.txt`, a fact in `learned.md`, a line in the repo)
    -> Grep yourself. Wide searches in the game install (vanilla/Bedrock usage of a call,
    ship label -> file name, several files to compare) -> `bc-scout`. Questions about what the
@@ -79,7 +93,12 @@ Files: CRLF, ASCII only, tab indentation.
 
 ## Conventions
 Config: percentages 0-100, switches 1/0, `Interval` in seconds, `Def = -1` = module default.
-Debug output only through the core `Log()` when `Debug = 1` (it writes `Spaceframe_debug.log`;
-`App.CPyDebug().Print` prints nothing). A temporary `Debug = 1` in the game Config.py makes
-`deploy.py` report it `edited`: `pull`, `install`, and restore `Debug = 0` in the repo before
-committing; never commit `Debug = 1`. Commit only when the user asks.
+Debug output only through the core `Log()` when `Debug` >= 1 (it writes `Spaceframe_debug.log`;
+`App.CPyDebug().Print` prints nothing). Switch it with `deploy.py debug N`, never by editing
+Config.py; the repo copy stays `Debug = 0`.
+README (EN/ES/PT): while a feature is iterating, user-facing settings are documented in the
+Config.py comments; the README gets one docs pass (all three languages) when the feature closes,
+before its commit. Do not send README edits with every small change.
+Large modules: keep a module file under ~1500 lines; split helpers into sibling files of the
+module folder (like `AutoFire/Solution.py`) instead of growing one file.
+Commit only when the user asks.

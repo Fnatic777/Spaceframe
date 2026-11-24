@@ -9,7 +9,14 @@ Usage (from the repo root):
     python tools/deploy.py install [Mod]   copy changed files, verify byte by byte
     python tools/deploy.py pull    [Mod]   copy files edited in the game back into the repo
     python tools/deploy.py backup  [Mod]   "<game>/<Mod> Backups/<Mod> vX.Y - DATE/" + .zip
+    python tools/deploy.py debug [0|1|2] [Mod]  show or set Debug in the GAME copy of
+                                           scripts/Custom/<Mod>/Config.py only
 Options: --force (install over files edited in the game), --game "D:/path".
+
+Debug level: the "Debug = N" line of a mod's own Config.py is a game-side
+setting. It is ignored when comparing that file (so Debug 1 in the game is not
+an "edited" file), and install keeps the game's level when it copies a newer
+Config.py. The repo copy stays Debug = 0.
 
 Safety: the content last installed is remembered (.deploy-state.json, local).
 A game file that differs from both the repo and that record was edited by the
@@ -35,8 +42,33 @@ STATE = os.path.join(REPO, ".deploy-state.json")
 PATCHED = {"Spaceframe": [r"scripts\QuickBattle\QuickBattle.py"]}
 
 
-def sha(path):
-	return hashlib.sha256(open(path, "rb").read()).hexdigest()
+DEBUG_RE = re.compile(rb"^Debug[ \t]*=[ \t]*(\d+)", re.M)
+
+
+def is_cfg(key):
+	"""The mod's own top-level Config.py (holds the Debug switch)."""
+	parts = key.split(os.sep)
+	return len(parts) == 4 and parts[:2] == ["scripts", "Custom"] and parts[3] == "Config.py"
+
+
+def norm(data, key):
+	"""Content used for comparisons: Debug level masked in the mod's Config.py."""
+	if is_cfg(key):
+		return DEBUG_RE.sub(b"Debug = 0", data, 1)
+	return data
+
+
+def debug_level(data):
+	m = DEBUG_RE.search(data)
+	return int(m.group(1)) if m else None
+
+
+def set_debug(data, level):
+	return DEBUG_RE.sub(b"Debug = " + str(level).encode(), data, 1)
+
+
+def sha(path, key=""):
+	return hashlib.sha256(norm(open(path, "rb").read(), key)).hexdigest()
 
 
 def load_state():
@@ -75,7 +107,7 @@ def mapping(mod, game):
 	return out
 
 
-def committed_sha(src):
+def committed_sha(src, key=""):
 	"""sha256 of src as committed at HEAD, with checkout filters (CRLF) applied; None if absent."""
 	rel = os.path.relpath(src, REPO).replace(os.sep, "/")
 	try:
@@ -84,7 +116,7 @@ def committed_sha(src):
 		return None
 	if r.returncode:
 		return None
-	return hashlib.sha256(r.stdout).hexdigest()
+	return hashlib.sha256(norm(r.stdout, key)).hexdigest()
 
 
 def classify(mod, game, st):
@@ -99,10 +131,10 @@ def classify(mod, game, st):
 		if not os.path.exists(dst):
 			yield "new", src, dst, key
 			continue
-		hs, hd = sha(src), sha(dst)
+		hs, hd = sha(src, key), sha(dst, key)
 		if hs == hd:
 			yield "same", src, dst, key
-		elif rec.get(key) == hd or committed_sha(src) == hd:
+		elif rec.get(key) == hd or committed_sha(src, key) == hd:
 			yield "changed", src, dst, key  # game holds a known version of ours
 		else:
 			yield "edited", src, dst, key  # game copy changed outside the repo
@@ -137,6 +169,33 @@ def cmd_status(mod, game, st, force):
 		print("%-8s %s" % ("game-only", os.path.relpath(p, game)))
 	if not n:
 		print("%s: game is up to date" % mod)
+	cfg = os.path.join(game, "scripts", "Custom", mod, "Config.py")
+	if os.path.exists(cfg):
+		lvl = debug_level(open(cfg, "rb").read())
+		if lvl:
+			print("%s: Debug = %d in the game (deploy.py debug 0 to turn it off)" % (mod, lvl))
+	return 0
+
+
+def cmd_debug(mod, game, st, force, level=None):
+	"""Show or set Debug in the game copy of the mod's Config.py; the repo is untouched."""
+	cfg = os.path.join(game, "scripts", "Custom", mod, "Config.py")
+	if not os.path.exists(cfg):
+		return 0
+	data = open(cfg, "rb").read()
+	cur = debug_level(data)
+	if cur is None:
+		print("%s: no 'Debug = N' line in the game Config.py" % mod)
+		return 1
+	if level is None or level == cur:
+		print("%s: Debug = %d in the game" % (mod, cur))
+		return 0
+	new = set_debug(data, level)
+	open(cfg, "wb").write(new)
+	if open(cfg, "rb").read() != new:
+		print("VERIFY FAILED " + cfg)
+		return 1
+	print("%s: Debug %d -> %d in the game (reloads at the next Quick Battle)" % (mod, cur, level))
 	return 0
 
 
@@ -146,7 +205,7 @@ def cmd_install(mod, game, st, force):
 	blocked = []
 	for state, src, dst, key in classify(mod, game, st):
 		if state == "same":
-			rec[key] = sha(dst)
+			rec[key] = sha(dst, key)
 		elif state == "edited" and not force:
 			blocked.append(key)
 		else:
@@ -163,13 +222,21 @@ def cmd_install(mod, game, st, force):
 		d = os.path.dirname(dst)
 		if not os.path.isdir(d):
 			os.makedirs(d)
-		shutil.copyfile(src, dst)  # fresh mtime -> game rebuilds the .pyc
-		if open(src, "rb").read() != open(dst, "rb").read():
+		data = open(src, "rb").read()
+		keep = None
+		if is_cfg(key) and os.path.exists(dst):
+			keep = debug_level(open(dst, "rb").read())
+			if keep is not None and keep != debug_level(data):
+				data = set_debug(data, keep)  # the game's Debug level survives an install
+			else:
+				keep = None
+		open(dst, "wb").write(data)  # fresh mtime -> game rebuilds the .pyc
+		if open(dst, "rb").read() != data:
 			print("VERIFY FAILED " + key)
 			bad = bad + 1
 			continue
-		rec[key] = sha(dst)
-		print("installed %-8s %s" % (state, key))
+		rec[key] = sha(dst, key)
+		print("installed %-8s %s%s" % (state, key, keep is not None and "  (kept Debug = %d)" % keep or ""))
 		base = os.path.basename(key)
 		if key.endswith(".py") and base not in ("Ships.py", "Config.py"):
 			code_changed = 1
@@ -188,8 +255,13 @@ def cmd_pull(mod, game, st, force):
 	n = 0
 	for state, src, dst, key in classify(mod, game, st):
 		if state == "edited":
-			shutil.copyfile(dst, src)
-			rec[key] = sha(dst)
+			data = open(dst, "rb").read()
+			if is_cfg(key):
+				lvl = debug_level(open(src, "rb").read())
+				if lvl is not None:
+					data = set_debug(data, lvl)  # the repo keeps its own Debug level
+			open(src, "wb").write(data)
+			rec[key] = sha(dst, key)
 			print("pulled " + key)
 			n = n + 1
 	save_state(st)
@@ -263,8 +335,18 @@ def main(argv):
 			args.append(argv[i])
 		i = i + 1
 	cmd = args[0] if args else "status"
-	targets = args[1:] or mods()
-	fn = {"status": cmd_status, "install": cmd_install, "pull": cmd_pull, "backup": cmd_backup}.get(cmd)
+	rest = args[1:]
+	level = None
+	if cmd == "debug":
+		if rest and rest[0].isdigit():
+			level = int(rest[0])
+			rest = rest[1:]
+		if level is not None and level not in (0, 1, 2):
+			print("debug level must be 0, 1 or 2")
+			return 2
+	targets = rest or mods()
+	fn = {"status": cmd_status, "install": cmd_install, "pull": cmd_pull, "backup": cmd_backup,
+		"debug": lambda m, g, s, f: cmd_debug(m, g, s, f, level)}.get(cmd)
 	if not fn:
 		print(__doc__)
 		return 2

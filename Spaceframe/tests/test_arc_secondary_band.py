@@ -38,13 +38,15 @@ def test_torpedo_secondary_band_looser():
 	assert torp_score(AF, ship, torps, target, 1) > 0.0
 
 
-def test_torpedo_secondary_distance_band():
+def test_torpedo_secondary_band_shares_flight_times():
 	App, AF, core, ship, target, torps, S = TT.rule3(TorpedoArcPercentFar=50, TorpedoArcPercentNear=90,
-		TorpedoArcFarDistanceSecondary=100, TorpedoArcNearDistanceSecondary=50, TorpedoArcHysteresis=0)
+		TorpedoArcPercentFarSecondary=20, TorpedoArcPercentNearSecondary=60, TorpedoArcHysteresis=0)
 	tMain = AF.ArcBand("torpedo")[0]
 	tSec = AF.ArcBand("torpedo", 1)[0]
-	assert abs(tSec[2] - 100 / 0.175) < 1e-6 and abs(tSec[3] - 50 / 0.175) < 1e-6
-	assert abs(tMain[2] - 30 / 0.175) < 1e-6
+	assert tSec[2] == tMain[2] == TT.FAR_FT and tSec[3] == tMain[3] == TT.NEAR_FT
+	assert tSec[0] == 20.0 and tSec[1] == 60.0 and tMain[0] == 50.0 and tMain[1] == 90.0
+	assert AF.ArcAllowed(100 / 0.175, TT.SPEED, tSec) == 20.0
+	assert AF.ArcAllowed(1 / 0.175, TT.SPEED, tSec) == 60.0
 
 
 def test_torpedo_main_target_path_unaffected():
@@ -120,30 +122,35 @@ def test_config_defines_secondary_settings():
 	cfg = importlib.util.module_from_spec(spec)
 	spec.loader.exec_module(cfg)
 	for sKind in ("Pulse", "Torpedo"):
-		for sName in ("PercentFar", "PercentNear", "FarDistance", "NearDistance"):
+		for sName in ("PercentFar", "PercentNear"):
 			sMain = sKind + "Arc" + sName
 			sSec = sMain + "Secondary"
 			assert hasattr(cfg, sMain) and hasattr(cfg, sSec), sSec
+		# new defaults: near 90, far 70, main and secondary
+		assert getattr(cfg, sKind + "ArcPercentNear") == 90 and getattr(cfg, sKind + "ArcPercentFar") == 70
+		assert getattr(cfg, sKind + "ArcPercentNearSecondary") == 90 and getattr(cfg, sKind + "ArcPercentFarSecondary") == 70
+		assert hasattr(cfg, sKind + "FlightTimeLimit") and hasattr(cfg, sKind + "FlightTimeLimitSecondary")
+	assert cfg.ArcFlightTimeNear == 0.5 and cfg.ArcFlightTimeFar == 1.5
+	assert cfg.SpreadFlightTimeMin == 2.0 and cfg.SpreadFlightTimeMax == 3.0
+	for sName in dir(cfg):
+		# the distance-based settings are gone
+		assert ("Distance" not in sName), sName
+		assert sName not in ("TorpedoFlightTimeFar", "TorpedoFlightTimeNear", "PulseFlightTimeFar", "PulseFlightTimeNear"), sName
+		assert sName not in ("TorpedoFlightTimeFarSecondary", "TorpedoFlightTimeNearSecondary", "PulseFlightTimeFarSecondary", "PulseFlightTimeNearSecondary", "SpreadMinDistance"), sName
 
 
 def test_missing_secondary_falls_back_to_main():
-	App, AF, core, ship = TT.base.setup(TorpedoArcPercentFar=44, TorpedoArcPercentNear=77, TorpedoArcFarDistance=20,
-		TorpedoArcNearDistance=2, PulseArcPercentFar=33, PulseArcPercentNear=66, PulseArcFarDistance=25,
-		PulseArcNearDistance=3)
+	App, AF, core, ship = TT.base.setup(TorpedoArcPercentFar=44, TorpedoArcPercentNear=77,
+		PulseArcPercentFar=33, PulseArcPercentNear=66)
 	assert AF.g_fTorpArcFarSec == 44.0 and AF.g_fTorpArcNearSec == 77.0
-	assert abs(AF.g_fTorpArcFarDistanceSec - 20 / 0.175) < 1e-6 and abs(AF.g_fTorpArcNearDistanceSec - 2 / 0.175) < 1e-6
 	assert AF.g_fArcFarSec == 33.0 and AF.g_fArcNearSec == 66.0
-	assert abs(AF.g_fArcFarDistanceSec - 25 / 0.175) < 1e-6 and abs(AF.g_fArcNearDistanceSec - 3 / 0.175) < 1e-6
 
 
 def test_secondary_config_read():
 	App, AF, core, ship = TT.base.setup(TorpedoArcPercentFarSecondary=11, TorpedoArcPercentNearSecondary=22,
-		TorpedoArcFarDistanceSecondary=40, TorpedoArcNearDistanceSecondary=4, PulseArcPercentFarSecondary=12,
-		PulseArcPercentNearSecondary=23, PulseArcFarDistanceSecondary=41, PulseArcNearDistanceSecondary=6)
+		PulseArcPercentFarSecondary=12, PulseArcPercentNearSecondary=23)
 	assert AF.g_fTorpArcFarSec == 11.0 and AF.g_fTorpArcNearSec == 22.0
-	assert abs(AF.g_fTorpArcFarDistanceSec - 40 / 0.175) < 1e-6 and abs(AF.g_fTorpArcNearDistanceSec - 4 / 0.175) < 1e-6
 	assert AF.g_fArcFarSec == 12.0 and AF.g_fArcNearSec == 23.0
-	assert abs(AF.g_fArcFarDistanceSec - 41 / 0.175) < 1e-6 and abs(AF.g_fArcNearDistanceSec - 6 / 0.175) < 1e-6
 
 
 def run():

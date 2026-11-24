@@ -21,3 +21,6 @@ Desktop.ini
 
 # deploy.py local record of installed content
 .deploy-state.json
+
+# tools/vanilla_calls.py cache of game .pyc calls
+.cache/

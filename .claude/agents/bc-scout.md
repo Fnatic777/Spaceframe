@@ -15,9 +15,17 @@ Sources, in this order (stop as soon as answered):
 4. Game install `D:\GOG Games\Star Trek Bridge Commander\scripts` - `.py` first.
    Rich sources: `Custom\Bedrock\`, `py\`, `QuickBattle\`.
    Ship menu label -> file: grep `Label = "..."` in `Custom\Bedrock\Ships\*.py`.
-5. `.pyc`-only vanilla code (MissionLib, AI, Tactical...): `python tools/dis15.py --calls-only
-   <file.pyc|dir> | grep Name` gives `path:func:line: call`; `--func Name` for the full listing.
+5. `.pyc`-only vanilla code (MissionLib, AI, Tactical...): `python tools/vanilla_calls.py REGEX`
+   (cached calls of every game .pyc, `path:func:line: call`, ~0.6 s; `--files` for counts per
+   file). Never run dis15 over a directory. For one function's full listing:
+   `python tools/dis15.py <file.pyc> --func Name`.
    Lines are SET_LINENO (multi-line statement = its last line); a stale `.pyc` may differ from its `.py`.
+6. What the game did in the user's last test: `python tools/gamelog.py` (summary), then
+   `show --module M --grep RE`. Never cat/grep the raw log.
+
+Scope: ONE question per call. If the prompt holds several, answer the first fully and list the
+others under `NOT DONE` - the coordinator splits them. Budget ~15 tool calls; if not answered by
+then, return `UNSURE` with what you checked.
 
 Bash is for read-only commands only (grep, ls, find, head). Never write, copy, move or delete.
 Use `Grep` with `glob: "*.py"` and `head_limit`; never dump large files.
