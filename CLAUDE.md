@@ -58,18 +58,18 @@ Files: CRLF, ASCII only, tab indentation.
   `stbc.exe` itself and every ship of the game: `apply`/`revert`/`upgrade` only with the user's
   explicit OK and the game closed.
 
-## Workflow (main agent = coordinator, keep your context small)
-Context budget: the coordinator reads at most ~40 lines of module code per question (Grep with
-`-n`/context, `Read` with offset/limit); anything wider goes to `bc-scout`, and code reading for a
-change belongs to `bc-implementer`. One session per feature: when a feature closes (or after ~2
-compactions), write the state in the mod's `docs/*-progress.md` and suggest a new session that
-starts from the ledger.
+## Workflow (main agent = coordinator)
+Read what a decision needs (Grep with `-n`/context, `Read` with offset/limit; a whole module only when
+the change depends on it). Wide searches go to `bc-scout`, engine questions to `bc-reverser`.
+One session per feature: when a feature closes (or after ~2 compactions), write the state in the mod's
+`docs/*-progress.md` and suggest a new session that starts from the ledger.
 1. Lookups: one-liners (a name in `App-index.txt`, a fact in `learned.md`, a line in the repo)
    -> Grep yourself. Wide searches in the game install (vanilla/Bedrock usage of a call,
    ship label -> file name, several files to compare) -> `bc-scout`. Questions about what the
    engine itself does (stbc.exe functions, struct fields, patch feasibility) -> `bc-reverser`.
-2. Code -> `bc-implementer` with a precise spec (files, behavior, config names, tests), or the
-   path of a `bc-architect` spec file. Trivial config/text edits: do them yourself, then run `check.py`.
+2. Code: a change inside one module whose code you have read -> do it yourself, then `check.py`.
+   Multi-module features, core lifecycle changes or long mechanical edits -> `bc-implementer` with a
+   precise spec (files, behavior, config names, tests) or the path of a `bc-architect` spec file.
 3. Every game-code change -> `bc-auditor` before install. Crash reports -> `bc-auditor` too.
 4. `deploy.py install`, tell the user whether to restart the game (`.py` code: restart;
    `Ships.py`/`Config.py`: next Quick Battle). Then WAIT for the user's in-game test.
@@ -81,14 +81,16 @@ starts from the ledger.
 ## Escalation to bc-architect (opus, expensive: one call per problem)
 - DESIGN before implementing: a new module, a change to the core lifecycle (Start/Stop, timers,
   hit handler), a new vanilla hook, or a feature resting on unconfirmed API. Not for config,
-  text or simple fixes - spec those yourself.
+  text or simple fixes - spec those yourself. A spec covers the next testable slice, not the whole
+  feature; revise it after the in-game test.
 - RESCUE: bc-implementer returned STUCK; bc-auditor FAILed twice on the same problem or said
   `ESCALATE`; a bug survived 2 in-game test cycles; a CTD with no clear cause.
 - Send a dossier, not the history: goal, agreed behavior, what failed, attempts, check.py output,
   `stbc.RPT` tail, the user's in-game observation, files:lines, `git log -3 --oneline`.
 - Results: FIXED -> bc-auditor, then install as usual. SPEC -> bc-implementer with the spec path.
   NEEDS USER / UNRESOLVED -> bring the question or the next experiment to the user.
-  Never escalate the same problem twice; learned candidates enter `learned.md` only after the
+  Do not re-escalate the same problem without new evidence (a new log, RPT or in-game observation);
+  learned candidates enter `learned.md` only after the
   user confirms them in game.
 
 ## Conventions
