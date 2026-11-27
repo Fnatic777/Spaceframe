@@ -125,28 +125,40 @@ PulseFlightTimeLimit = 1.5	# seconds (0 = off)
 TorpedoFlightTimeLimitSecondary = 1.0	# seconds (0 = off)
 PulseFlightTimeLimitSecondary = 1.0	# seconds (0 = off)
 
+# Longer flight time against targets that cannot get out of the way: large
+# ones, slow ones, damaged engines. Used only when a shot is over its limit
+# above (rule 2; torpedoes and pulse weapons, main and secondary targets), and
+# never makes a limit shorter. The time the target gets is
+#   square root of (2 x allowance x target radius / its current acceleration)
+# in game units, plus the guidance time. A target with no impulse engines or no
+# acceleration gets the maximum. Small agile ships stay under the limits above.
+TargetSizeAllowance = 100	# percent of the target radius (higher = more permissive; 0 = off)
+TargetSizeFlightTimeMax = 5.0	# seconds, never longer than this (0 = off)
+
 # Spread torpedoes leave in a fan and take a while to turn to the target:
 # Auto Fire fires them in spread only while the estimated flight time
 # (distance to the target / current torpedo speed) is between these two
 # values, and Single otherwise (too close they would fly past the target,
 # too far the fan is too wide). Seconds; Max 0 = no upper bound. Unknown
 # torpedo speed: Single.
-# Spread is independent of the torpedo flight-time limit above: a torpedo shot
-# whose flight time is inside this window (and that has a spread chain) is NOT
-# held by TorpedoFlightTimeLimit (main and secondary targets alike); it goes
-# out as spread. Outside the window the limit applies as usual. The arc percent still applies. Pulse
-# weapons are not affected. The distance used is tube to predicted point.
+# The window only chooses HOW a torpedo is fired, never whether: the arc
+# percent and the flight-time limit above (stretched by TargetSize* for large
+# or hard to move targets) still decide that, main and secondary targets alike.
+# So a target limited below SpreadFlightTimeMin never gets spread, and a limit
+# inside the window allows spread only up to the limit. The spread mode
+# belongs to the torpedo system: secondary targets fired in the same press as a
+# spread shot at the main target leave in spread too. Pulse weapons are not
+# affected. The distance used is tube to predicted point.
 SpreadFlightTimeMin = 2.0
-SpreadFlightTimeMax = 3.0
+SpreadFlightTimeMax = 5.0
 
 # Separate arc percent for spread torpedoes (percent 0-100, same measure as
 # TorpedoArcPercent*: the depth of the predicted point inside the tube arc,
 # TorpedoArcShape respected; 0 = tube axis, 100 = arc edge). A tube only
-# counts as a spread shot (and bypasses the flight-time limit) when the
-# flight time is in the window above AND its depth*100 is at most this
-# value. Between this value and the normal arc percent the tube is judged as
-# a Single shot (flight-time limit applies as usual). Fixed value, not
-# interpolated by flight time, no hysteresis; main and secondary targets alike.
+# counts as a spread shot when the flight time is in the window above AND its
+# depth*100 is at most this value. Between this value and the normal arc
+# percent it is fired Single. Fixed value, not interpolated by flight time, no
+# hysteresis; main and secondary targets alike.
 SpreadArcPercent = 10
 
 # Torpedoes kept back for manual use (Auto Fire stops launching when only

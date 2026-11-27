@@ -1,7 +1,7 @@
 Spaceframe v0.6 - lightweight module framework for Bridge Commander
 ====================================================================
 Included modules: MV Shields (Multivectral Shields) v0.7, Ablative Armor v1.6,
-Status HUD v0.12, Auto Fire v0.4, Secondary Target v0.3
+Status HUD v0.12, Auto Fire v0.5, Secondary Target v0.3
 
   [EN] English ........ section 1
   [ES] Espanol ........ seccion 2
@@ -140,7 +140,7 @@ Settings: scripts\Custom\Spaceframe\Modules\StatusHUD\Config.py
 
 Auto Fire module
 ----------------
-Fires the weapons of the ship you control by firing-solution rules, so you
+Fires the weapons of the ship you control by arc and flight-time rules, so you
 can concentrate on manoeuvring. Only for the player's ship, and only if it
 has "AutoFire" in Ships.py.
 - On and off: the L key (ToggleKey) or the "Auto Fire" button in the
@@ -154,63 +154,65 @@ has "AutoFire" in Ships.py.
   full-damage range, in arc, and charged to at least PhaserMinCharge
   (0 = off for either check).
 - Torpedoes: the target is predicted where it will be when the torpedo
-  arrives (the same prediction the game's AI uses). TorpedoRule 1 (arc
-  percent): a tube fires when where the target will be is inside its fixed
-  30 degree cone by a share that depends on the distance:
-  TorpedoArcPercentFar % of the cone (from its centre) at
-  TorpedoArcFarDistance km and beyond, opening to TorpedoArcPercentNear % at
-  TorpedoArcNearDistance km and closer; once firing it keeps firing until the
-  point is TorpedoArcHysteresis points past that (0 = off: ready only while
-  inside the percent). TorpedoRule 2 (default): rule 1 plus a flight-time
-  filter: a tube is also held while distance / torpedo speed is longer than
-  TorpedoFlightTimeFar seconds (at TorpedoArcFarDistance km and beyond) to
-  TorpedoFlightTimeNear seconds (at TorpedoArcNearDistance km and closer),
-  in proportion in between, plus the torpedo's own guidance time (never more
-  than its lifetime); 0 = no limit (off if either value is 0); an
-  unknown speed never blocks. Any other TorpedoRule value (the old 3
-  included) counts as 2; the old firing-solution and firing-cone rules, and
-  their settings (TorpedoMinSolution, ConeAngle*, Cone*Distance, TargetEvasion,
-  GuidanceStrength, GuidanceLimit, TubeMaxAngle, TargetSize), are gone.
-  TorpedoReserve torpedoes are kept back. Secondary targets (Secondary Target
-  ON) have their own band: TorpedoArcPercentFarSecondary,
-  TorpedoArcPercentNearSecondary, TorpedoArcFarDistanceSecondary,
-  TorpedoArcNearDistanceSecondary, and their own flight-time limits
-  TorpedoFlightTimeFarSecondary / TorpedoFlightTimeNearSecondary (and the
-  same PulseArc...Secondary / PulseFlightTime...Secondary for pulse
-  weapons); a setting left out falls back to the main one, and the
-  hysteresis stays shared.
-  Arc shape (TorpedoArcShape / PulseArcShape, 1 = default): the percent is
-  measured as ONE angle from the arc centre (the 30 degree cone for
-  torpedoes; an ellipse inscribed in the weapon's own, possibly asymmetric,
-  limits for pulse weapons), not per axis. On the axes the percent means the
-  same; in the corners of the old box it is stricter (a torpedo leaving near
-  a corner does not reach the target). 0 = old box depth.
-- Spread: the ship's largest spread for arc scores of SpreadMinSolution or
-  more (100 = target dead centre of the tube's cone) and at SpreadMinDistance
-  km or further (spread torpedoes need room to turn); Single otherwise. Your
-  own spread comes back when Auto Fire is switched off or when you fire
-  torpedoes by hand.
-- Pulse weapons (disruptors, pulse cannons), when charged: PulseRule 1 (arc
-  percent): fires when where the target will be is inside the weapon's firing
-  arc by a share of the arc that depends on the distance: PulseArcPercentFar
-  % of the arc (from its centre) at PulseArcFarDistance km and beyond,
-  opening to PulseArcPercentNear % at PulseArcNearDistance km and closer.
-  Once firing it keeps firing until the point is PulseArcHysteresis points
-  past that (0 = off: ready only while inside the percent). PulseRule 2
-  (default): rule 1 plus the flight-time filter with PulseFlightTimeFar /
-  PulseFlightTimeNear (same meaning as for torpedoes, the pulse weapon's
-  launch speed). Any other value counts as 2.
-  With Secondary Target ON it also picks the secondary targets of the free
-  weapons, and fires at a secondary alone when no weapon has a shot at the
-  main target.
+  arrives (the same prediction the game's AI uses). A tube fires only when
+  that point is inside a share of its fixed 30 degree cone (0 = centre,
+  100 = edge) that depends on the estimated flight time (distance / torpedo
+  speed): TorpedoArcPercentNear % (90) at ArcFlightTimeNear seconds (0.5) and
+  less, narrowing to TorpedoArcPercentFar % (70) at ArcFlightTimeFar seconds
+  (1.5) and more, in proportion in between. Once firing it keeps firing until
+  the point is TorpedoArcHysteresis points past that (0 = off).
+  TorpedoReserve torpedoes are kept back.
+- TorpedoRule 1 = the arc percent only. TorpedoRule 2 (default; any other
+  value counts as 2) adds a flight-time limit: a tube is held while the
+  flight time is over TorpedoFlightTimeLimit seconds (1.5) plus the torpedo's
+  own guidance time, never more than its lifetime. 0 = no limit; an unknown
+  speed never blocks.
+- Large or slow targets (rule 2): a shot over the limit still fires when the
+  target cannot get out of the way in time. It gets
+  square root of (2 x TargetSizeAllowance% x target radius / its current
+  acceleration), in game units, plus the guidance time, up to
+  TargetSizeFlightTimeMax seconds (5.0). A target with no impulse engines or
+  no acceleration gets that maximum; damaged engines raise the time. It never
+  makes a limit shorter, so small agile ships keep the limits above.
+  TargetSizeAllowance 100 = the target's own radius, higher = more
+  permissive; 0 in either setting = off.
+- Spread: Auto Fire uses the ship's largest spread when the flight time is
+  between SpreadFlightTimeMin (2.0) and SpreadFlightTimeMax (5.0; 0 = no
+  upper bound) and the predicted point is within SpreadArcPercent (10) of the
+  cone; Single otherwise. This only chooses HOW to fire: the flight-time
+  limit still applies, so a target limited below SpreadFlightTimeMin never
+  gets spread. The spread mode belongs to the torpedo system: secondaries
+  fired in the same press as a spread shot at the main target leave in spread
+  too. Your own spread comes back when Auto Fire is switched off or when you
+  fire torpedoes by hand.
+- Pulse weapons (disruptors, pulse cannons), when charged: the same arc and
+  flight-time rules on the weapon's own firing arc, with PulseRule,
+  PulseArcPercentNear / PulseArcPercentFar, PulseArcHysteresis and
+  PulseFlightTimeLimit; large or slow targets get the longer limit too.
+  Spread does not apply. With Secondary Target ON it also picks the secondary
+  targets of the free weapons, and fires at a secondary alone when no weapon
+  has a shot at the main target.
+- Secondary targets have their own values: TorpedoArcPercentNearSecondary /
+  TorpedoArcPercentFarSecondary and TorpedoFlightTimeLimitSecondary (1.0),
+  and the same Pulse... settings. A setting left out falls back to the main
+  one; the flight times of the arc percent and the hysteresis are shared.
+- Arc shape (TorpedoArcShape / PulseArcShape, 1 = default): the percent is
+  measured as ONE angle from the arc centre (the cone for torpedoes; an
+  ellipse inscribed in the weapon's own, possibly asymmetric, limits for
+  pulse weapons). In the corners of the arc it is stricter than on the axes.
+  0 = the old box depth (each axis apart).
+- HoldOnWarp = 1: torpedoes and pulse weapons are held while the target does
+  an in-system warp and for WarpHoldGrace seconds (1.0) after it; manual fire
+  is never held. 0 = off.
 - TapFire = 1: torpedoes and pulse weapons are fired with quick presses
   (faster than holding the key); phasers are always held.
 - SecondaryTorpedoes = 1: with Secondary Target switched ON for the ship
   (torpedoes allowed), torpedo tubes that cannot reach the target fire at
   other enemies they can reach, by themselves, with the same rule as the
-  main target (TorpedoRule) and TorpedoReserve. Tubes that reach the main target keep their
+  main target (TorpedoRule) and TorpedoReserve. Tubes that reach the main
+  target keep their
   torpedoes for it. If no tube reaches the main target, the free tubes fire
-  at the best secondary, in Single. 0 = off.
+  at the best secondary, with the same spread rule. 0 = off.
 - SecondaryPhasers = 1: with Secondary Target switched ON for the ship
   (phasers allowed), a phaser group whose banks cannot reach the main target
   fires at a secondary target a ready bank reaches (nearest first), and goes
@@ -219,9 +221,9 @@ has "AutoFire" in Ships.py.
 - TargetMode: 0 = your selected target only; 1 = your target, and with none
   (or after a kill) the nearest enemy becomes your target; 2 = each weapon
   group picks its own enemy (phasers the nearest they can hit, torpedoes
-  and pulse weapons the best solution).
+  and pulse weapons the best arc score).
 Settings: scripts\Custom\Spaceframe\Modules\AutoFire\Config.py (each setting
-is described there; distances in km as shown in game). They are read once
+is described there). They are read once
 when a battle starts: edits apply from the next battle (Quick Battle), not
 mid-battle.
 
@@ -495,8 +497,8 @@ Configuracion: scripts\Custom\Spaceframe\Modules\StatusHUD\Config.py
 
 Modulo Auto Fire
 ----------------
-Dispara las armas de la nave que usted controla segun reglas de solucion de
-tiro, para que pueda concentrarse en maniobrar. Solo para la nave del
+Dispara las armas de la nave que usted controla segun reglas de arco y de
+tiempo de vuelo, para que pueda concentrarse en maniobrar. Solo para la nave del
 jugador, y solo si tiene "AutoFire" en Ships.py.
 - Encender y apagar: la tecla L (ToggleKey) o el boton "Auto Fire" del menu
   del oficial tactico. Encendido, "AUTO" aparece en verde en la esquina
@@ -510,57 +512,57 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   alcance de dano maximo, en el arco, y con carga de al menos
   PhaserMinCharge (0 = desactivado en ambos controles).
 - Torpedos: el objetivo se predice donde estara cuando llegue el torpedo
-  (la misma prediccion de la IA del juego). TorpedoRule 1 (porcentaje de
-  arco): un tubo dispara cuando donde estara el objetivo esta dentro de su
-  cono fijo de 30 grados en una parte que depende de la distancia:
-  TorpedoArcPercentFar % del cono (desde su centro) a TorpedoArcFarDistance
-  km o mas, abriendose a TorpedoArcPercentNear % a TorpedoArcNearDistance km
-  o menos; una vez disparando, sigue hasta que el punto se pase
-  TorpedoArcHysteresis puntos (0 = apagado: listo solo dentro del
-  porcentaje). TorpedoRule 2 (por defecto): la regla 1 mas un filtro de
-  tiempo de vuelo: un tubo tambien espera mientras distancia / velocidad del
-  torpedo supere TorpedoFlightTimeFar segundos (a TorpedoArcFarDistance km o
-  mas) hasta TorpedoFlightTimeNear segundos (a TorpedoArcNearDistance km o
-  menos), proporcional entre medio, mas el tiempo de guiado del propio
-  torpedo (nunca mas que su vida); 0 = sin limite (apagado si cualquiera de
-  los dos valores es 0); una velocidad desconocida nunca bloquea. Cualquier
-  otro valor de TorpedoRule (el antiguo 3 incluido) cuenta como 2; las
-  antiguas reglas de solucion de tiro y de cono de tiro, y sus ajustes
-  (TorpedoMinSolution, ConeAngle*, Cone*Distance, TargetEvasion,
-  GuidanceStrength, GuidanceLimit, TubeMaxAngle, TargetSize), ya no existen.
-  Se guardan TorpedoReserve torpedos. Los objetivos secundarios (Secondary
-  Target ON) tienen su propia banda: TorpedoArcPercentFarSecondary,
-  TorpedoArcPercentNearSecondary, TorpedoArcFarDistanceSecondary,
-  TorpedoArcNearDistanceSecondary, y sus propios limites de tiempo de vuelo
-  TorpedoFlightTimeFarSecondary / TorpedoFlightTimeNearSecondary (y los
-  mismos PulseArc...Secondary / PulseFlightTime...Secondary para armas de
-  pulso); un ajuste omitido toma el principal y la histeresis sigue
-  compartida.
-  Forma del arco (TorpedoArcShape / PulseArcShape, 1 = por defecto): el
-  porcentaje se mide como UN angulo desde el centro del arco (cono de 30
-  grados para torpedos; elipse inscrita en los limites propios del arma para
-  pulso, tambien asimetricos), no por eje. Sobre los ejes el porcentaje vale
-  lo mismo; en las esquinas de la caja es mas estricto (un torpedo no alcanza
-  al objetivo si sale cerca de una esquina). 0 = profundidad antigua por caja.
-- Spread: el mayor spread de la nave para notas de arco de SpreadMinSolution
-  o mas (100 = objetivo en el centro del cono del tubo) y a SpreadMinDistance
-  km o mas (los torpedos en spread necesitan espacio para girar); Single en
-  otro caso. Su propio spread vuelve al apagar el Auto Fire o al disparar
-  torpedos a mano.
-- Armas de pulso (disruptores, canones de pulso), cargadas: PulseRule 1
-  (porcentaje de arco): dispara cuando donde estara el objetivo esta dentro
-  del arco de tiro del arma en una parte del arco que depende de la
-  distancia: PulseArcPercentFar % del arco (desde su centro) a
-  PulseArcFarDistance km o mas, abriendose a PulseArcPercentNear % a
-  PulseArcNearDistance km o menos. Una vez disparando, sigue hasta que el
-  punto se pase PulseArcHysteresis puntos (0 = apagado: listo solo dentro
-  del porcentaje). PulseRule 2 (por defecto): la regla 1 mas el filtro de
-  tiempo de vuelo con PulseFlightTimeFar / PulseFlightTimeNear (mismo
-  significado que en torpedos, con la velocidad de lanzamiento del arma de
-  pulso). Cualquier otro valor cuenta como 2.
-  Con el Secondary Target ENCENDIDO tambien elige los objetivos secundarios
-  de las armas libres, y dispara a un secundario solo cuando ningun arma
-  tiene tiro al objetivo principal.
+  (la misma prediccion de la IA del juego). Un tubo dispara solo cuando ese
+  punto esta dentro de una parte de su cono fijo de 30 grados (0 = centro,
+  100 = borde) que depende del tiempo de vuelo estimado (distancia /
+  velocidad del torpedo): TorpedoArcPercentNear % (90) a ArcFlightTimeNear
+  segundos (0.5) o menos, cerrandose a TorpedoArcPercentFar % (70) a
+  ArcFlightTimeFar segundos (1.5) o mas, proporcional entre medio. Una vez
+  disparando, sigue hasta que el punto se pase TorpedoArcHysteresis puntos
+  (0 = apagado). Se guardan TorpedoReserve torpedos.
+- TorpedoRule 1 = solo el porcentaje de arco. TorpedoRule 2 (por defecto;
+  cualquier otro valor cuenta como 2) agrega un limite de tiempo de vuelo: un
+  tubo espera mientras el tiempo de vuelo supere TorpedoFlightTimeLimit
+  segundos (1.5) mas el tiempo de guiado del propio torpedo, nunca mas que su
+  vida. 0 = sin limite; una velocidad desconocida nunca bloquea.
+- Objetivos grandes o lentos (regla 2): un tiro por encima del limite sale
+  igual cuando el objetivo no puede apartarse a tiempo. Recibe
+  raiz cuadrada de (2 x TargetSizeAllowance% x radio del objetivo / su
+  aceleracion actual), en unidades del juego, mas el tiempo de guiado, hasta
+  TargetSizeFlightTimeMax segundos (5.0). Un objetivo sin motores de impulso
+  o sin aceleracion recibe ese maximo; motores danados alargan el tiempo.
+  Nunca acorta un limite, asi que las naves pequenas y agiles conservan los
+  limites de arriba. TargetSizeAllowance 100 = el radio del objetivo, mas =
+  mas permisivo; 0 en cualquiera de los dos = apagado.
+- Spread: el Auto Fire usa el mayor spread de la nave cuando el tiempo de
+  vuelo esta entre SpreadFlightTimeMin (2.0) y SpreadFlightTimeMax (5.0; 0 =
+  sin tope) y el punto previsto esta dentro de SpreadArcPercent (10) del
+  cono; Single en otro caso. Esto solo elige COMO disparar: el limite de
+  tiempo de vuelo sigue valiendo, asi que un objetivo limitado por debajo de
+  SpreadFlightTimeMin nunca recibe spread. El modo spread es del sistema de
+  torpedos: los secundarios disparados en la misma pulsacion que un spread al
+  principal tambien salen en spread. Su propio spread vuelve al apagar el
+  Auto Fire o al disparar torpedos a mano.
+- Armas de pulso (disruptores, canones de pulso), cargadas: las mismas reglas
+  de arco y tiempo de vuelo sobre el arco de tiro del arma, con PulseRule,
+  PulseArcPercentNear / PulseArcPercentFar, PulseArcHysteresis y
+  PulseFlightTimeLimit; los objetivos grandes o lentos tambien reciben el
+  limite mayor. El spread no aplica. Con el Secondary Target ENCENDIDO
+  tambien elige los objetivos secundarios de las armas libres, y dispara a un
+  secundario solo cuando ningun arma tiene tiro al objetivo principal.
+- Los objetivos secundarios tienen sus propios valores:
+  TorpedoArcPercentNearSecondary / TorpedoArcPercentFarSecondary y
+  TorpedoFlightTimeLimitSecondary (1.0), y los mismos ajustes Pulse... Un
+  ajuste omitido toma el principal; los tiempos de vuelo del porcentaje de
+  arco y la histeresis son compartidos.
+- Forma del arco (TorpedoArcShape / PulseArcShape, 1 = por defecto): el
+  porcentaje se mide como UN angulo desde el centro del arco (el cono para
+  torpedos; una elipse inscrita en los limites propios del arma, tambien
+  asimetricos, para pulso). En las esquinas del arco es mas estricto que
+  sobre los ejes. 0 = profundidad antigua por caja (cada eje aparte).
+- HoldOnWarp = 1: torpedos y armas de pulso esperan mientras el objetivo hace
+  un warp dentro del sistema y durante WarpHoldGrace segundos (1.0) despues;
+  el disparo manual nunca se retiene. 0 = apagado.
 - TapFire = 1: torpedos y armas de pulso se disparan con toques rapidos
   (mas rapido que mantener la tecla); los phasers siempre se mantienen.
 - SecondaryTorpedoes = 1: con el Secondary Target ENCENDIDO en la nave
@@ -568,7 +570,8 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
   disparan solos a otros enemigos que si alcanzan, con la misma regla del
   objetivo principal (TorpedoRule) y el TorpedoReserve. Los tubos que alcanzan el objetivo
   principal guardan los torpedos para el. Si ninguno lo alcanza, los tubos
-  libres disparan al mejor secundario, en Single. 0 = apagado.
+  libres disparan al mejor secundario, con la misma regla de spread.
+  0 = apagado.
 - SecondaryPhasers = 1: con el Secondary Target ENCENDIDO en la nave
   (phasers permitidos), un grupo de phasers cuyos bancos no alcanzan el
   objetivo principal dispara a un objetivo secundario que un banco listo
@@ -577,9 +580,10 @@ jugador, y solo si tiene "AutoFire" en Ships.py.
 - TargetMode: 0 = solo su objetivo seleccionado; 1 = su objetivo, y sin
   ninguno (o tras una baja) el enemigo mas cercano pasa a ser su objetivo;
   2 = cada grupo de armas elige su enemigo (phasers el mas cercano que
-  alcanzan, torpedos y pulso la mejor solucion).
+  alcanzan, torpedos y pulso la mejor nota de
+  arco).
 Configuracion: scripts\Custom\Spaceframe\Modules\AutoFire\Config.py (cada
-opcion esta descrita alli; distancias en km como se ven en el juego). Se
+opcion esta descrita alli). Se
 leen una vez al empezar la batalla: los cambios valen desde la proxima
 batalla (Quick Battle), no durante la actual.
 
@@ -858,8 +862,8 @@ Configuracao: scripts\Custom\Spaceframe\Modules\StatusHUD\Config.py
 
 Modulo Auto Fire
 ----------------
-Dispara as armas da nave que voce controla por regras de solucao de tiro,
-para voce se concentrar em manobrar. So para a nave do jogador, e so se ela
+Dispara as armas da nave que voce controla por regras de arco e tempo de
+voo, para voce se concentrar em manobrar. So para a nave do jogador, e so se ela
 tiver "AutoFire" no Ships.py.
 - Ligar e desligar: a tecla L (ToggleKey) ou o botao "Auto Fire" no menu do
   oficial tatico. Ligado, "AUTO" aparece em verde no canto superior direito
@@ -872,57 +876,57 @@ tiver "AutoFire" no Ships.py.
   dano maximo, no arco, e com carga de pelo menos PhaserMinCharge
   (0 = desligado em ambos os controles).
 - Torpedos: o alvo e previsto onde estara quando o torpedo chegar (a mesma
-  previsao da IA do jogo). TorpedoRule 1 (porcentagem do arco): um tubo
-  dispara quando onde o alvo vai estar fica dentro do cone fixo de 30 graus
-  dele numa parte que depende da distancia: TorpedoArcPercentFar % do cone (a
-  partir do centro) a TorpedoArcFarDistance km ou mais, abrindo para
-  TorpedoArcPercentNear % a TorpedoArcNearDistance km ou menos; depois de
-  comecar a disparar, continua ate o ponto passar TorpedoArcHysteresis
-  pontos (0 = desligado: pronto so dentro da porcentagem). TorpedoRule 2
-  (padrao): a regra 1 mais um filtro de tempo de voo: um tubo tambem espera
-  enquanto distancia / velocidade do torpedo passar de TorpedoFlightTimeFar
-  segundos (a TorpedoArcFarDistance km ou mais) ate TorpedoFlightTimeNear
-  segundos (a TorpedoArcNearDistance km ou menos), proporcional no meio,
-  mais o tempo de guiamento do proprio torpedo (nunca mais que a sua vida);
-  0 = sem limite (desligado se qualquer um dos dois valores for 0); uma
-  velocidade desconhecida nunca bloqueia. Qualquer outro valor de
-  TorpedoRule (o antigo 3 incluido) conta como 2; as antigas regras de
-  solucao de tiro e de cone de tiro, e os ajustes delas (TorpedoMinSolution,
-  ConeAngle*, Cone*Distance, TargetEvasion, GuidanceStrength, GuidanceLimit,
-  TubeMaxAngle, TargetSize), foram removidas. Ficam guardados
-  TorpedoReserve torpedos. Os alvos secundarios (Secondary Target ON) tem
-  a sua propria faixa: TorpedoArcPercentFarSecondary,
-  TorpedoArcPercentNearSecondary, TorpedoArcFarDistanceSecondary,
-  TorpedoArcNearDistanceSecondary, e os seus proprios limites de tempo de voo
-  TorpedoFlightTimeFarSecondary / TorpedoFlightTimeNearSecondary (e os
-  mesmos PulseArc...Secondary / PulseFlightTime...Secondary para armas de
-  pulso); um ajuste omitido usa o principal, e a histerese continua
-  compartilhada.
-  Formato do arco (TorpedoArcShape / PulseArcShape, 1 = padrao): o porcentual
-  e medido como UM angulo a partir do centro do arco (cone de 30 graus para
-  torpedos; elipse inscrita nos limites da propria arma para pulso, tambem
-  assimetricos), nao por eixo. Sobre os eixos o porcentual vale o mesmo; nos
-  cantos da caixa e mais estrito (um torpedo nao chega ao alvo quando sai
-  perto de um canto). 0 = profundidade antiga por caixa.
-- Spread: o maior spread da nave para notas de arco de SpreadMinSolution ou
-  mais (100 = alvo no centro do cone do tubo) e a SpreadMinDistance km ou
-  mais (torpedos em spread precisam de espaco para virar); Single nos outros
-  casos. O seu spread volta ao desligar o Auto Fire ou ao disparar torpedos
+  previsao da IA do jogo). Um tubo so dispara quando esse ponto esta dentro
+  de uma parte do cone fixo de 30 graus dele (0 = centro, 100 = borda) que
+  depende do tempo de voo estimado (distancia / velocidade do torpedo):
+  TorpedoArcPercentNear % (90) com ArcFlightTimeNear segundos (0.5) ou menos,
+  fechando para TorpedoArcPercentFar % (70) com ArcFlightTimeFar segundos
+  (1.5) ou mais, proporcional no meio. Depois de comecar a disparar, continua
+  ate o ponto passar TorpedoArcHysteresis pontos (0 = desligado). Ficam
+  guardados TorpedoReserve torpedos.
+- TorpedoRule 1 = so a porcentagem do arco. TorpedoRule 2 (padrao; qualquer
+  outro valor conta como 2) acrescenta um limite de tempo de voo: um tubo
+  espera enquanto o tempo de voo passar de TorpedoFlightTimeLimit segundos
+  (1.5) mais o tempo de guiamento do proprio torpedo, nunca mais que a vida
+  dele. 0 = sem limite; uma velocidade desconhecida nunca bloqueia.
+- Alvos grandes ou lentos (regra 2): um tiro acima do limite sai mesmo assim
+  quando o alvo nao consegue sair da frente a tempo. Ele ganha
+  raiz quadrada de (2 x TargetSizeAllowance% x raio do alvo / aceleracao
+  atual dele), em unidades do jogo, mais o tempo de guiamento, ate
+  TargetSizeFlightTimeMax segundos (5.0). Um alvo sem motores de impulso ou
+  sem aceleracao ganha esse maximo; motores danificados aumentam o tempo.
+  Nunca encurta um limite, entao naves pequenas e ageis mantem os limites
+  acima. TargetSizeAllowance 100 = o raio do alvo, mais = mais permissivo;
+  0 em qualquer um dos dois = desligado.
+- Spread: o Auto Fire usa o maior spread da nave quando o tempo de voo fica
+  entre SpreadFlightTimeMin (2.0) e SpreadFlightTimeMax (5.0; 0 = sem teto) e
+  o ponto previsto esta dentro de SpreadArcPercent (10) do cone; Single nos
+  outros casos. Isso so escolhe COMO disparar: o limite de tempo de voo
+  continua valendo, entao um alvo limitado abaixo de SpreadFlightTimeMin
+  nunca recebe spread. O modo spread e do sistema de torpedos: os secundarios
+  disparados no mesmo acionamento de um spread no principal tambem saem em
+  spread. O seu spread volta ao desligar o Auto Fire ou ao disparar torpedos
   na mao.
-- Armas de pulso (disruptores, canhoes de pulso), carregadas: PulseRule 1
-  (porcentagem do arco): dispara quando onde o alvo vai estar fica dentro do
-  arco de tiro da arma numa parte do arco que depende da distancia:
-  PulseArcPercentFar % do arco (a partir do centro) a PulseArcFarDistance km
-  ou mais, abrindo para PulseArcPercentNear % a PulseArcNearDistance km ou
-  menos. Depois de comecar a disparar, continua ate o ponto passar
-  PulseArcHysteresis pontos (0 = desligado: pronto so dentro da
-  porcentagem). PulseRule 2 (padrao): a regra 1 mais o filtro de tempo de
-  voo com PulseFlightTimeFar / PulseFlightTimeNear (mesmo significado dos
-  torpedos, com a velocidade de lancamento da arma de pulso). Qualquer outro
-  valor conta como 2.
-  Com o Secondary Target LIGADO tambem escolhe os alvos secundarios das armas
-  livres, e atira em um secundario sozinho quando nenhuma arma tem tiro no
-  alvo principal.
+- Armas de pulso (disruptores, canhoes de pulso), carregadas: as mesmas
+  regras de arco e tempo de voo sobre o arco de tiro da arma, com PulseRule,
+  PulseArcPercentNear / PulseArcPercentFar, PulseArcHysteresis e
+  PulseFlightTimeLimit; alvos grandes ou lentos tambem ganham o limite maior.
+  Spread nao se aplica. Com o Secondary Target LIGADO tambem escolhe os alvos
+  secundarios das armas livres, e atira em um secundario sozinho quando
+  nenhuma arma tem tiro no alvo principal.
+- Os alvos secundarios tem os proprios valores:
+  TorpedoArcPercentNearSecondary / TorpedoArcPercentFarSecondary e
+  TorpedoFlightTimeLimitSecondary (1.0), e os mesmos ajustes Pulse... Um
+  ajuste omitido usa o principal; os tempos de voo da porcentagem do arco e a
+  histerese sao compartilhados.
+- Formato do arco (TorpedoArcShape / PulseArcShape, 1 = padrao): o porcentual
+  e medido como UM angulo a partir do centro do arco (o cone para torpedos;
+  uma elipse inscrita nos limites da propria arma, tambem assimetricos, para
+  pulso). Nos cantos do arco e mais estrito que sobre os eixos. 0 = a
+  profundidade antiga por caixa (cada eixo separado).
+- HoldOnWarp = 1: torpedos e armas de pulso esperam enquanto o alvo faz um
+  warp dentro do sistema e por WarpHoldGrace segundos (1.0) depois; o disparo
+  manual nunca e segurado. 0 = desligado.
 - TapFire = 1: torpedos e armas de pulso sao disparados com toques rapidos
   (mais rapido que segurar a tecla); os phasers sao sempre segurados.
 - SecondaryTorpedoes = 1: com o Secondary Target LIGADO na nave (torpedos
@@ -930,7 +934,7 @@ tiver "AutoFire" no Ships.py.
   conta propria, contra outros inimigos que alcancam, com a mesma regra do
   alvo principal (TorpedoRule) e o TorpedoReserve. Os tubos que alcancam o alvo principal
   guardam os torpedos para ele. Se nenhum tubo o alcanca, os tubos livres
-  atiram no melhor secundario, em Single. 0 = desligado.
+  atiram no melhor secundario, com a mesma regra de spread. 0 = desligado.
 - SecondaryPhasers = 1: com o Secondary Target LIGADO na nave (phasers
   permitidos), um grupo de phasers cujos bancos nao alcancam o alvo principal
   atira em um alvo secundario que um banco pronto alcanca (o mais proximo
@@ -939,9 +943,9 @@ tiver "AutoFire" no Ships.py.
 - TargetMode: 0 = so o alvo que voce selecionou; 1 = o seu alvo, e sem
   nenhum (ou depois de um abate) o inimigo mais proximo vira o seu alvo;
   2 = cada grupo de armas escolhe o proprio inimigo (phasers o mais
-  proximo que alcancam, torpedos e pulso a melhor solucao).
+  proximo que alcancam, torpedos e pulso a melhor nota de arco).
 Configuracao: scripts\Custom\Spaceframe\Modules\AutoFire\Config.py (cada
-opcao esta descrita la; distancias em km como aparecem no jogo). Sao lidas
+opcao esta descrita la). Sao lidas
 uma vez ao comecar a batalha: as mudancas valem a partir da proxima batalha
 (Quick Battle), nao durante a atual.
 
