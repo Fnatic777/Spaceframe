@@ -131,7 +131,7 @@ def test_config_defines_secondary_settings():
 		assert getattr(cfg, sKind + "ArcPercentNearSecondary") == 90 and getattr(cfg, sKind + "ArcPercentFarSecondary") == 70
 		assert hasattr(cfg, sKind + "FlightTimeLimit") and hasattr(cfg, sKind + "FlightTimeLimitSecondary")
 	assert cfg.ArcFlightTimeNear == 0.5 and cfg.ArcFlightTimeFar == 1.5
-	assert cfg.SpreadFlightTimeMin == 2.0 and cfg.SpreadFlightTimeMax == 3.0
+	assert cfg.SpreadFlightTimeMin == 2.0 and cfg.SpreadFlightTimeMax == 5.0
 	for sName in dir(cfg):
 		# the distance-based settings are gone
 		assert ("Distance" not in sName), sName

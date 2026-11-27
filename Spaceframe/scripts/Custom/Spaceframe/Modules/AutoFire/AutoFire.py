@@ -100,6 +100,8 @@ g_fTorpFtLimit = 0.0		# TorpedoFlightTimeLimit, seconds (0 = filter off)
 g_fFtLimit = 0.0		# PulseFlightTimeLimit
 g_fTorpFtLimitSec = 0.0		# TorpedoFlightTimeLimitSecondary
 g_fFtLimitSec = 0.0		# PulseFlightTimeLimitSecondary
+g_fSizeAllowance = 0.0		# TargetSizeAllowance, percent of the target radius (0 = off)
+g_fSizeFtMax = 0.0		# TargetSizeFlightTimeMax, seconds (0 = off)
 ARC_MINIMUM = 1.0	# lowest arc score that fires (any weapon inside the allowed percent)
 PULSE_ARC_LIFETIME = 0	# 1 = pulse rule 3 also drops shots beyond the projectile lifetime (off: as before)
 
@@ -138,6 +140,7 @@ def LoadConfig():
 	global g_fArcFarSec, g_fArcNearSec
 	global g_fTorpArcFarSec, g_fTorpArcNearSec
 	global g_iTorpArcShape, g_iPulseArcShape, g_dSpreadOK, g_bHoldOnWarp, g_fWarpGrace
+	global g_fSizeAllowance, g_fSizeFtMax
 	pConfig = GetConfig()
 	g_bHoldOnWarp = int(getattr(pConfig, "HoldOnWarp", 1))
 	g_fWarpGrace = float(getattr(pConfig, "WarpHoldGrace", 1.0))
@@ -167,6 +170,9 @@ def LoadConfig():
 	g_fFtLimit = float(getattr(pConfig, "PulseFlightTimeLimit", 0))
 	g_fTorpFtLimitSec = float(getattr(pConfig, "TorpedoFlightTimeLimitSecondary", g_fTorpFtLimit))
 	g_fFtLimitSec = float(getattr(pConfig, "PulseFlightTimeLimitSecondary", g_fFtLimit))
+	# longer limit for large / hard to move targets (TargetSize.py); missing = off
+	g_fSizeAllowance = float(getattr(pConfig, "TargetSizeAllowance", 0))
+	g_fSizeFtMax = float(getattr(pConfig, "TargetSizeFlightTimeMax", 0))
 	g_dFtLog = {}
 	g_bFtSpeedLogged = 0
 	ForgetArc()
@@ -1145,8 +1151,9 @@ def NoteSpread(iTarget, bSpread):
 def SpreadShot(pTorpedoes, fDistance, fSpeed, fDepth=0.0):
 	# 1 when a torpedo shot would go out as spread: a spread chain exists, the
 	# flight time is inside the spread window AND depth*100 <= SpreadArcPercent
-	# (fixed, no hysteresis; fDepth is the same value ArcScore judges). Used by
-	# ArcScore (to bypass the flight-time limit) and, through g_dSpreadOK, by
+	# (fixed, no hysteresis; fDepth is the same value ArcScore judges). Only the
+	# firing mode: whether the tube may fire at all is up to the arc percent and
+	# the flight-time limit. Used by ArcScore and, through g_dSpreadOK, by
 	# ApplySpread: one decision, one distance (tube to lead point).
 	try:
 		if pTorpedoes.GetNumFiringChains() - 1 <= 0:
@@ -1286,13 +1293,15 @@ def FlightLimit(sKind, bSecondary):
 	return fLimit
 
 
-def FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance=0.0, fLifetime=0.0, bSpread=0, fDepth=None):
+def FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance=0.0, fLifetime=0.0, pTarget=None):
 	# Rule 2 only: 1 when the estimated flight time (distance / projectile
 	# speed) is over the limit for that distance. The limit is the configured
 	# one PLUS the projectile's guidance time (it can still correct its course
 	# during it), never more than the projectile's lifetime (0 = unknown, no
 	# cap). 0 = filter off, speed unknown (no block, logged once in Debug) or
-	# within the limit.
+	# within the limit. A shot over the limit still passes when pTarget is large
+	# or hard to move enough for a longer one (TargetSize.py; same guidance
+	# time and lifetime cap).
 	global g_bFtSpeedLogged
 	if sKind == "torpedo":
 		iRule = g_iTorpedoRule
@@ -1303,6 +1312,7 @@ def FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance=0.0, 
 	fLimit = FlightLimit(sKind, bSecondary)
 	if fLimit <= 0.0:
 		return 0
+	fBase = fLimit	# the configured limit, without guidance
 	if fGuidance > 0.0:
 		fLimit = fLimit + fGuidance
 	if (fLifetime > 0.0) and (fLimit > fLifetime):
@@ -1318,19 +1328,33 @@ def FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance=0.0, 
 	fEstimate = fDistance / fSpeed
 	if fEstimate <= fLimit:
 		return 0
-	if bSpread:
-		# bSpread: the shot goes out as spread (SpreadShot), independent of the limit.
-		if g_bDebug:
-			LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget, 1, fDepth)
-		return 0
+	tSize = None
+	if pTarget != None:
+		try:
+			tSize = GetTargetSize().Extend(pTarget, fBase)
+		except:
+			tSize = None
+	if (tSize != None) and (tSize[0] > fBase):
+		fLong = tSize[0]
+		if fGuidance > 0.0:
+			fLong = fLong + fGuidance
+		if (fLifetime > 0.0) and (fLong > fLifetime):
+			fLong = fLifetime
+		if fEstimate <= fLong:
+			if g_bDebug:
+				LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget, tSize, fLong)
+			return 0
+		fLimit = fLong
 	if g_bDebug:
-		LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget)
+		LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget, tSize)
 	return 1
 
 
-def LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget, bBypass=0, fDepth=None):
-	# Debug only: the filter blocked a weapon; one line per target and kind at
-	# most every 2 seconds of game time.
+def LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget, tSize=None, fLong=0.0):
+	# Debug only: the filter blocked a weapon (fLong 0), or let it fire for the
+	# target's size (up to fLong seconds). tSize is the answer of
+	# TargetSize.Extend. One line per target, kind and outcome at most every 2
+	# seconds of game time.
 	if g_pCore == None:
 		return
 	try:
@@ -1338,16 +1362,22 @@ def LogFlightBlock(sKind, bSecondary, fEstimate, fLimit, fDistance, iTarget, bBy
 		sRole = "main"
 		if bSecondary:
 			sRole = "sec"
-		tKey = (iTarget, sKind, bSecondary, bBypass)
+		bPassed = fLong > 0.0
+		tKey = (iTarget, sKind, bSecondary, bPassed)
 		if g_dFtLog.has_key(tKey) and (fNow - g_dFtLog[tKey] < 2.0):
 			return
 		g_dFtLog[tKey] = fNow
 		fKm = fDistance * KmPerUnit()
 		sText = "Flight time filter: " + sKind + " " + sRole + " est " + ("%.1f" % fEstimate) + " s > limit " + ("%.1f" % fLimit) + " s at " + str(int(fKm)) + " km"
-		if bBypass:
-			sText = sText + ", passed as spread"
-			if fDepth != None:
-				sText = sText + " (depth " + ("%.0f" % (fDepth * 100.0)) + " <= spread arc " + ("%.0f" % g_fSpreadArcPercent) + ")"
+		if (tSize != None) and (tSize[1] != None):
+			sRadius = ("%.2f" % (tSize[1] * KmPerUnit())) + " km"
+			sAccel = "none"
+			if tSize[2] != None:
+				sAccel = "%.2f" % tSize[2]
+			if bPassed:
+				sText = sText + ", passed by target size (limit " + ("%.1f" % fLong) + " s, radius " + sRadius + ", accel " + sAccel + ")"
+			else:
+				sText = sText + ", target radius " + sRadius + " accel " + sAccel
 		g_pCore.Log(NAME, sText)
 	except:
 		pass
@@ -1397,6 +1427,11 @@ def WeaponReady(pWeapon, sKind):
 def GetWarpHold():
 	import Custom.Spaceframe.Modules.AutoFire.WarpHold
 	return Custom.Spaceframe.Modules.AutoFire.WarpHold
+
+
+def GetTargetSize():
+	import Custom.Spaceframe.Modules.AutoFire.TargetSize
+	return Custom.Spaceframe.Modules.AutoFire.TargetSize
 
 
 def WarpHeld(pTarget):
@@ -1509,7 +1544,7 @@ def ArcScore(pShip, pSystem, pWeapon, pTarget, vOffset, sKind, bNeedReady, tFram
 		bAuto = (sKind == "torpedo") and bNeedReady	# not ArcReaches (manual fire): no spread decision
 		if bAuto:
 			bSpread = SpreadShot(pSystem, fDistance, fSpeed, fDepth)
-		if FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance, fLifetime, bSpread, fDepth):
+		if FlightBlocked(sKind, bSecondary, fDistance, fSpeed, iTarget, fGuidance, fLifetime, pTarget):
 			ArcDrop(iKey)
 			return 0.0
 		if bAuto:

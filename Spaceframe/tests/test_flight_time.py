@@ -154,7 +154,7 @@ def test_torpedo_blocks_over_the_limit_and_passes_under():
 
 def test_torpedo_limit_does_not_depend_on_distance():
 	# The same limit 1.2 s at 5 km (0.29 s) and 20 km (1.14 s) passes; 30 km (1.71 s) blocks.
-	# (Spread window moved far away: it would bypass the limit at 30 km.)
+	# (Spread window moved far away: not part of this test.)
 	App, AF, core, ship, target, torps, S = torp(TorpedoFlightTimeLimit=1.2, SpreadFlightTimeMin=50.0, SpreadFlightTimeMax=0)
 	TT.place(target, 0.1, 5.0)
 	assert tscore(AF, ship, torps, target) > 0.0

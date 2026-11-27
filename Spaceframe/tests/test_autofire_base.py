@@ -44,6 +44,8 @@ def setup(tech=1, **kw):
 	sys.modules["Custom.Spaceframe.Modules.AutoFire"].TorpDiag = TD
 	WH = mock_app.load_module("Modules/AutoFire/WarpHold.py", "Custom.Spaceframe.Modules.AutoFire.WarpHold")
 	sys.modules["Custom.Spaceframe.Modules.AutoFire"].WarpHold = WH
+	TS = mock_app.load_module("Modules/AutoFire/TargetSize.py", "Custom.Spaceframe.Modules.AutoFire.TargetSize")
+	sys.modules["Custom.Spaceframe.Modules.AutoFire"].TargetSize = TS
 	core = mock_app.Core()
 	ship = mock_app.Ship("Galaxy", 1)
 	if tech:
